@@ -688,7 +688,7 @@ export default function App() {
         .sort((a,b) => b.score - a.score)
     : [...submissions].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-  const step = picks.length < qualifyCount ? 1 : !identity ? 2 : 3;
+  const step = !identity ? 1 : picks.length < qualifyCount ? 2 : 3;
 
   // ── Avatar helper ─────────────────────────────────────────────
   const Avatar = ({ photo, name, size = 26 }) => {
@@ -837,8 +837,8 @@ export default function App() {
                 {/* Steps */}
                 <div className="pk-steps">
                   {[
-                    {n:1, l:`Pick ${qualifyCount} Teams`},
-                    {n:2, l:"Sign In / Name"},
+                    {n:1, l:"Sign In / Name"},
+                    {n:2, l:`Pick ${qualifyCount} Teams`},
                     {n:3, l:"Submit"},
                   ].map(s => (
                     <div key={s.n} className={`pk-step${step===s.n?" active":step>s.n?" done":""}`}>
@@ -846,6 +846,35 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+
+                {/* Sign in gate */}
+                {!identity && (
+                  <div style={{background:G.surface, border:`1.5px solid ${G.border}`, borderRadius:12, padding:"24px", marginBottom:24, textAlign:"center"}}>
+                    <div style={{fontSize:15, fontWeight:700, marginBottom:6}}>Sign in to participate</div>
+                    <div style={{fontSize:13, color:G.textSub, marginBottom:18}}>Sign in with Google or continue as a guest to select your teams and submit picks.</div>
+                    <div style={{display:"flex", gap:10, justifyContent:"center", flexWrap:"wrap"}}>
+                      <button className="pk-google-btn" onClick={handleGoogleSignIn} style={{padding:"10px 20px", fontSize:14}}>
+                        <GoogleIcon/> Sign in with Google
+                      </button>
+                      <button className="pk-btn pk-btn-accent" onClick={()=>setShowManualInput(true)}>
+                        Continue as Guest
+                      </button>
+                    </div>
+                    {showManualInput && (
+                      <div style={{display:"flex", gap:8, alignItems:"center", justifyContent:"center", marginTop:14, flexWrap:"wrap"}}>
+                        <input className="pk-input" style={{width:200, padding:"8px 12px", fontSize:13}}
+                          placeholder="Enter your name"
+                          value={manualName}
+                          onChange={e=>setManualName(e.target.value)}
+                          onKeyDown={e=>e.key==="Enter"&&manualName.trim()&&setShowManualInput(false)}/>
+                        <button className="pk-btn pk-btn-green"
+                          onClick={()=>manualName.trim()&&setShowManualInput(false)}>
+                          Confirm
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Slots */}
                 <div className="pk-section-label">Your picks — {picks.length}/{qualifyCount}</div>
@@ -871,7 +900,7 @@ export default function App() {
                   })}
                 </div>
 
-                {/* Team pool */}
+                {/* Team pool — disabled until signed in */}
                 <div className="pk-section-label">
                   {picks.length < qualifyCount
                     ? `Click to pick #${picks.length + 1}`
@@ -886,7 +915,7 @@ export default function App() {
                       <button key={t.team}
                         className={`pk-team-btn${sel?" selected":""}`}
                         onClick={() => handlePickTeam(name)}
-                        disabled={sel || picks.length >= qualifyCount}>
+                        disabled={!identity || sel || picks.length >= qualifyCount}>
                         {idx >= 0 && <div className="pk-team-order">#{idx+1}</div>}
                         <img className="pk-team-logo" src={logoUrl(t.image, t.team)} alt=""
                           onError={e=>logoFallback(e, t.team)}/>
@@ -897,29 +926,21 @@ export default function App() {
                 </div>
 
                 {/* Submit */}
-                {picks.length === qualifyCount && (
+                {picks.length === qualifyCount && identity && (
                   <div className="pk-form" style={{maxWidth:420}}>
-                    {!identity ? (
-                      <div style={{background:G.accentDim, border:`1px solid rgba(232,93,4,.2)`, borderRadius:10, padding:"14px 16px", fontSize:13, color:G.accentText, fontWeight:600}}>
-                        Please sign in with Google or enter a guest name above to submit your picks.
+                    <div style={{display:"flex", alignItems:"center", gap:10, background:G.greenDim, border:`1px solid rgba(22,163,74,.2)`, borderRadius:10, padding:"12px 16px"}}>
+                      <Avatar photo={identity.photo} name={identity.name} size={32}/>
+                      <div>
+                        <div style={{fontSize:13, fontWeight:700}}>{identity.name}</div>
+                        <div style={{fontSize:11, color:G.muted}}>Submitting as this name</div>
                       </div>
-                    ) : (
-                      <>
-                        <div style={{display:"flex", alignItems:"center", gap:10, background:G.greenDim, border:`1px solid rgba(22,163,74,.2)`, borderRadius:10, padding:"12px 16px"}}>
-                          <Avatar photo={identity.photo} name={identity.name} size={32}/>
-                          <div>
-                            <div style={{fontSize:13, fontWeight:700}}>{identity.name}</div>
-                            <div style={{fontSize:11, color:G.muted}}>Submitting as this name</div>
-                          </div>
-                        </div>
-                        <button className="pk-submit-btn" onClick={handleSubmit} disabled={submitting}>
-                          {submitting ? "Submitting..." : "Submit Picks"}
-                        </button>
-                        <div className="pk-hint">
-                          Submitting again with the same account overwrites your previous picks.
-                        </div>
-                      </>
-                    )}
+                    </div>
+                    <button className="pk-submit-btn" onClick={handleSubmit} disabled={submitting}>
+                      {submitting ? "Submitting..." : "Submit Picks"}
+                    </button>
+                    <div className="pk-hint">
+                      Submitting again with the same account overwrites your previous picks.
+                    </div>
                   </div>
                 )}
               </>
