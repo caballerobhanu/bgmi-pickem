@@ -598,8 +598,8 @@ export default function App() {
                   Edit Picks
                 </button>
                 <div className="pk-token-box">
-                  <strong>📱 Want to edit from another device?</strong>
-                  Your picks are saved to this browser. To edit from another device, you must use the same browser on this device.
+                  <strong>📱 Want to edit your picks?</strong>
+                  Login in using your id and pin, you can edit your submissions before March 12, 2 PM.
                 </div>
               </div>
             ) : isClosed ? (
