@@ -794,25 +794,25 @@ export default function App() {
       });
       const filename = `bgis2026-${stage}-picks-${identity.username}.png`;
 
-      // Mobile — use Web Share API if supported
-      if (navigator.canShare) {
-        const blob = await (await fetch(dataUrl)).blob();
-        const file = new File([blob], filename, { type: "image/png" });
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            files: [file],
-            title: "BGIS 2026 Pick'em",
-            text: `My ${STAGE_LABELS[stage]} picks — make yours at esportsamaze.in`,
-            url: "https://esportsamaze.in/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026/Pickem",
-          });
-          return;
-        }
+      const blob = await (await fetch(dataUrl)).blob();
+      const file = new File([blob], filename, { type: "image/png" });
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+      if (isMobile && navigator.share && navigator.canShare?.({ files: [file] })) {
+        // Mobile — native share sheet
+        await navigator.share({
+          files: [file],
+          title: "BGIS 2026 Pick'em",
+          text: `My ${STAGE_LABELS[stage]} picks — make yours at esportsamaze.in`,
+          url: "https://esportsamaze.in/wiki/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026/pickem",
+        });
+      } else {
+        // Desktop — download
+        const a = document.createElement("a");
+        a.href = dataUrl;
+        a.download = filename;
+        a.click();
       }
-      // Desktop fallback — download
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = filename;
-      a.click();
     } catch(e) {
       if (e?.name !== "AbortError") showToast("Could not generate image", "error");
     } finally {
@@ -1072,7 +1072,7 @@ export default function App() {
                             <button className="pk-share-btn"
                               onClick={()=>handleShare(stage, sub, score, pub)}
                               disabled={sharing===stage}>
-                              {sharing===stage ? "⏳ Generating..." : navigator.canShare ? "📤 Share Card" : "⬇️ Download Card"}
+                              {sharing===stage ? "⏳ Generating..." : /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? "📤 Share Card" : "⬇️ Download Card"}
                             </button>
                           </div>
                         </>
