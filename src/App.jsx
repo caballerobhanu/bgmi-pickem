@@ -792,12 +792,29 @@ export default function App() {
         score,
         published,
       });
+      const filename = `bgis2026-${stage}-picks-${identity.username}.png`;
+
+      // Mobile — use Web Share API if supported
+      if (navigator.canShare) {
+        const blob = await (await fetch(dataUrl)).blob();
+        const file = new File([blob], filename, { type: "image/png" });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: "BGIS 2026 Pick'em",
+            text: `My ${STAGE_LABELS[stage]} picks — make yours at esportsamaze.in`,
+            url: "https://esportsamaze.in/wiki/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026/pickem",
+          });
+          return;
+        }
+      }
+      // Desktop fallback — download
       const a = document.createElement("a");
       a.href = dataUrl;
-      a.download = `bgis2026-${stage}-picks-${identity.username}.png`;
+      a.download = filename;
       a.click();
     } catch(e) {
-      showToast("Could not generate image", "error");
+      if (e?.name !== "AbortError") showToast("Could not generate image", "error");
     } finally {
       setSharing(null);
     }
@@ -1055,7 +1072,7 @@ export default function App() {
                             <button className="pk-share-btn"
                               onClick={()=>handleShare(stage, sub, score, pub)}
                               disabled={sharing===stage}>
-                              {sharing===stage ? "⏳ Generating..." : "📤 Share Card"}
+                              {sharing===stage ? "⏳ Generating..." : navigator.canShare ? "📤 Share Card" : "⬇️ Download Card"}
                             </button>
                           </div>
                         </>
