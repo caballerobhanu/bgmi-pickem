@@ -331,6 +331,18 @@ function loadImage(src) {
 }
 
 async function generateShareCard({ username, platform, stage, picks, score, published }) {
+  // Load Archivo SemiBold from Google Fonts into the document
+  if (!document.querySelector("#archivo-font")) {
+    const link = document.createElement("link");
+    link.id = "archivo-font";
+    link.rel = "stylesheet";
+    link.href = "https://fonts.googleapis.com/css2?family=Archivo:wght@600&display=swap";
+    document.head.appendChild(link);
+    // Wait for font to load
+    await new Promise(r => setTimeout(r, 800));
+  }
+  await document.fonts.ready;
+
   const W = 1080, H = 1920;
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
@@ -340,35 +352,35 @@ async function generateShareCard({ username, platform, stage, picks, score, publ
   const tmpl = await loadImage(TEMPLATE_B64);
   ctx.drawImage(tmpl, 0, 0, W, H);
 
-  // Username below title, above slot 1
-  ctx.font = "600 36px Arial, sans-serif";
-  ctx.fillStyle = "rgba(60,60,60,0.85)";
-  ctx.textAlign = "left";
-  ctx.fillText(`@${username}  ·  ${platform === "x" ? "X / Twitter" : "Instagram"}`, 230, 412);
+  // Username — center aligned, smaller
+  ctx.font = "600 30px 'Archivo', Arial, sans-serif";
+  ctx.fillStyle = "rgba(60,60,60,0.80)";
+  ctx.textAlign = "center";
+  ctx.fillText(`@${username}`, W / 2, 412);
 
-  // Team names in each slot
-  ctx.font = "bold 52px Arial, sans-serif";
+  // Team names in each slot — smaller, Archivo SemiBold
+  ctx.font = "600 38px 'Archivo', Arial, sans-serif";
   ctx.fillStyle = "#141414";
   ctx.textAlign = "left";
 
   const maxSlots = Math.min(picks.length, SLOT_CENTERS.length);
   for (let i = 0; i < maxSlots; i++) {
     const cy = SLOT_CENTERS[i];
-    ctx.fillText(picks[i], 270, cy + 19); // +19 to vertically center text
+    ctx.fillText(picks[i], 270, cy + 14);
   }
 
-  // Score overlay (if published) — inside slot area below last pick
+  // Score overlay (if published)
   if (published && score !== null) {
     const lastY = SLOT_CENTERS[maxSlots - 1];
-    const scoreY = lastY + 100;
+    const scoreY = lastY + 90;
     ctx.fillStyle = "rgba(22,163,74,0.12)";
     ctx.beginPath();
-    ctx.roundRect(230, scoreY, 420, 72, 12);
+    ctx.roundRect(230, scoreY, 420, 68, 12);
     ctx.fill();
-    ctx.font = "bold 46px Arial, sans-serif";
+    ctx.font = "600 42px 'Archivo', Arial, sans-serif";
     ctx.fillStyle = "#15803d";
     ctx.textAlign = "center";
-    ctx.fillText(`${score} pts`, 440, scoreY + 48);
+    ctx.fillText(`${score} pts`, 440, scoreY + 46);
   }
 
   return canvas.toDataURL("image/png");
