@@ -352,21 +352,21 @@ async function generateShareCard({ username, platform, stage, picks, score, publ
   const tmpl = await loadImage(TEMPLATE_B64);
   ctx.drawImage(tmpl, 0, 0, W, H);
 
-  // Username — center aligned, smaller
+  // Username — center aligned, pushed up
   ctx.font = "600 30px 'Archivo', Arial, sans-serif";
   ctx.fillStyle = "rgba(60,60,60,0.80)";
   ctx.textAlign = "center";
-  ctx.fillText(`@${username}`, W / 2, 412);
+  ctx.fillText(`@${username}`, W / 2, 380);
 
-  // Team names in each slot — smaller, Archivo SemiBold
-  ctx.font = "600 38px 'Archivo', Arial, sans-serif";
+  // Team names — 34px, uppercase, pushed right to clear rank box
+  ctx.font = "600 34px 'Archivo', Arial, sans-serif";
   ctx.fillStyle = "#141414";
   ctx.textAlign = "left";
 
   const maxSlots = Math.min(picks.length, SLOT_CENTERS.length);
   for (let i = 0; i < maxSlots; i++) {
     const cy = SLOT_CENTERS[i];
-    ctx.fillText(picks[i], 270, cy + 14);
+    ctx.fillText(picks[i].toUpperCase(), 310, cy + 12);
   }
 
   // Score overlay (if published)
