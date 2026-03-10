@@ -485,7 +485,8 @@ export default function App() {
         setPinFlow("pin_new");
       }
     } catch(e) {
-      showToast("Something went wrong. Try again.","error");
+      console.error("handleConfirm error:", e);
+      showToast(e?.message || "Something went wrong. Try again.","error");
     } finally {
       setIdLoading(false);
     }
