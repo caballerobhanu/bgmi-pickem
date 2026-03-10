@@ -460,7 +460,7 @@ export default function App() {
     try {
       const docId  = `${platform}_${clean}`;
       // Check users collection (PIN store)
-      const uRef   = doc(db, "pickem", USERS_COL, docId);
+      const uRef   = doc(db, USERS_COL, docId);
       const uSnap  = await getDoc(uRef);
 
       if (uSnap.exists()) {
@@ -498,7 +498,7 @@ export default function App() {
     const clean = usernameInput.trim().replace(/^@/,"").toLowerCase();
     const token = await hashPin(pinInput);
     // Save to users collection
-    await setDoc(doc(db,"pickem",USERS_COL,pendingDocId), { token, platform, username:clean, createdAt:new Date().toISOString() });
+    await setDoc(doc(db,USERS_COL,pendingDocId), { token, platform, username:clean, createdAt:new Date().toISOString() });
     localStorage.setItem(LS_TOKEN, token);
     localStorage.setItem(LS_DOCID, pendingDocId);
     setIdentity({ username:clean, platform, docId:pendingDocId, token, isReturning:false });
@@ -510,7 +510,7 @@ export default function App() {
     if (!/^\d{6}$/.test(pinInput)) { setPinError("PIN must be exactly 6 digits"); return; }
     setIdLoading(true); setPinError("");
     try {
-      const uSnap = await getDoc(doc(db,"pickem",USERS_COL,pendingDocId));
+      const uSnap = await getDoc(doc(db,USERS_COL,pendingDocId));
       const token = await hashPin(pinInput);
       if (uSnap.exists() && uSnap.data().token===token) {
         const clean = usernameInput.trim().replace(/^@/,"").toLowerCase();
