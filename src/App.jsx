@@ -803,7 +803,7 @@ export default function App() {
             files: [file],
             title: "BGIS 2026 Pick'em",
             text: `My ${STAGE_LABELS[stage]} picks — make yours at esportsamaze.in`,
-            url: "https://esportsamaze.in/wiki/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026/pickem",
+            url: "https://esportsamaze.in/wiki/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026/Pickem",
           });
           return;
         }
