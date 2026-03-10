@@ -275,6 +275,11 @@ const css = `
   .pk-stage-trigger-info { font-size:13px; color:${G.sub}; }
   .pk-stage-trigger-info strong { display:block; font-size:15px; color:${G.text}; margin-bottom:2px; }
 
+  /* Share button */
+  .pk-share-btn { display:inline-flex; align-items:center; gap:6px; background:#0f172a; border:1.5px solid rgba(255,255,255,.12); border-radius:7px; padding:7px 13px; font-family:'Barlow Condensed',sans-serif; font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#fff; cursor:pointer; transition:all .15s; margin-top:10px; }
+  .pk-share-btn:hover { background:#1e293b; border-color:rgba(232,93,4,.5); }
+  .pk-share-btn:disabled { opacity:.5; cursor:not-allowed; }
+
   /* Legend */
   .pk-legend { display:flex; gap:14px; flex-wrap:wrap; margin-top:12px; }
   .pk-legend-item { display:flex; align-items:center; gap:5px; font-size:11px; font-weight:600; color:${G.sub}; }
@@ -306,6 +311,152 @@ function logoFallback(e, teamName) {
 function tn(t) { return (t.display_name&&t.display_name!=="") ? t.display_name : t.team; }
 function fmtTime(iso) {
   return new Date(iso).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
+}
+
+// ── Share Card Generator ──────────────────────────────────────────
+async function generateShareCard({ username, platform, stage, picks, score, published }) {
+  const W = 720, H = 1280;
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  // Background
+  ctx.fillStyle = "#0a0f1a";
+  ctx.fillRect(0, 0, W, H);
+
+  // Orange glow at bottom
+  const glow = ctx.createRadialGradient(W/2, H, 0, W/2, H, W*0.9);
+  glow.addColorStop(0, "rgba(232,93,4,0.22)");
+  glow.addColorStop(1, "transparent");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle grid lines
+  ctx.strokeStyle = "rgba(255,255,255,0.035)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 60) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 60) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  // Top accent bar
+  const bar = ctx.createLinearGradient(0,0,W,0);
+  bar.addColorStop(0,"#e85d04"); bar.addColorStop(1,"#ff8c42");
+  ctx.fillStyle = bar;
+  ctx.fillRect(0, 0, W, 5);
+
+  // BGIS 2026 label
+  ctx.font = "700 22px 'Arial'";
+  ctx.fillStyle = "#e85d04";
+  ctx.letterSpacing = "4px";
+  ctx.textAlign = "center";
+  ctx.fillText("BGMI · BGIS 2026", W/2, 72);
+
+  // PICK'EM title
+  ctx.font = "900 96px 'Arial Black', Arial";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText("PICK'EM", W/2, 168);
+
+  // Stage badge
+  const badgeW = 280, badgeH = 44, badgeX = W/2 - badgeW/2, badgeY = 188;
+  ctx.fillStyle = "rgba(232,93,4,0.15)";
+  roundRect(ctx, badgeX, badgeY, badgeW, badgeH, 8);
+  ctx.strokeStyle = "rgba(232,93,4,0.4)"; ctx.lineWidth = 1.5;
+  roundRect(ctx, badgeX, badgeY, badgeW, badgeH, 8, true);
+  ctx.font = "700 18px Arial";
+  ctx.fillStyle = "#e85d04";
+  ctx.fillText(stage.toUpperCase(), W/2, badgeY + 28);
+
+  // Username
+  ctx.font = "700 32px Arial";
+  ctx.fillStyle = "rgba(255,255,255,0.6)";
+  ctx.fillText(`@${username}  ·  ${platform === "x" ? "X / Twitter" : "Instagram"}`, W/2, 278);
+
+  // Divider
+  ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(60, 305); ctx.lineTo(W-60, 305); ctx.stroke();
+
+  // Picks
+  const pickStartY = 340;
+  const rowH = 82;
+  const maxQ = picks.length;
+
+  for (let i = 0; i < maxQ; i++) {
+    const y = pickStartY + i * rowH;
+    const isEven = i % 2 === 0;
+
+    // Row background
+    ctx.fillStyle = isEven ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.015)";
+    roundRect(ctx, 50, y, W - 100, rowH - 6, 10);
+
+    // Rank number
+    ctx.font = "900 28px 'Arial Black', Arial";
+    ctx.fillStyle = "#e85d04";
+    ctx.textAlign = "left";
+    ctx.fillText(`#${i+1}`, 76, y + rowH/2 + 10);
+
+    // Team name
+    ctx.font = "700 30px Arial";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(picks[i], 140, y + rowH/2 + 10);
+
+    // Team logo (attempt)
+    try {
+      const imgUrl = `${FILE_BASE}${encodeURIComponent((picks[i]+".png").replace(/ /g,"_"))}`;
+      const img = await loadImage(imgUrl);
+      ctx.drawImage(img, W - 130, y + 8, 56, 56);
+    } catch {}
+  }
+
+  // Score (if published)
+  const scoreY = pickStartY + maxQ * rowH + 20;
+  if (published && score !== null) {
+    ctx.fillStyle = "rgba(22,163,74,0.12)";
+    roundRect(ctx, W/2 - 120, scoreY, 240, 64, 10);
+    ctx.font = "900 38px 'Arial Black', Arial";
+    ctx.fillStyle = "#4ade80";
+    ctx.textAlign = "center";
+    ctx.fillText(`${score} pts`, W/2, scoreY + 42);
+  }
+
+  // Bottom branding
+  const brandY = H - 80;
+  ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(60, brandY - 20); ctx.lineTo(W-60, brandY - 20); ctx.stroke();
+
+  ctx.font = "600 20px Arial";
+  ctx.fillStyle = "rgba(255,255,255,0.3)";
+  ctx.textAlign = "center";
+  ctx.fillText("esportsamaze.in", W/2, brandY + 10);
+  ctx.font = "700 17px Arial";
+  ctx.fillStyle = "rgba(232,93,4,0.6)";
+  ctx.fillText("BGIS 2026 Pick'em", W/2, brandY + 36);
+
+  return canvas.toDataURL("image/png");
+}
+
+function roundRect(ctx, x, y, w, h, r, stroke = false) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  if (stroke) ctx.stroke(); else ctx.fill();
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+    setTimeout(() => reject(new Error("timeout")), 3000);
+  });
 }
 
 // ── App ───────────────────────────────────────────────────────────
@@ -700,6 +851,31 @@ export default function App() {
   const lbTabs = STAGE_ORDER.filter(s => isDeadlinePast(s));
   const showCombined = lbTabs.filter(s => isPublished(s)).length > 1;
 
+  // ── Share card ────────────────────────────────────────────────
+  const [sharing, setSharing] = useState(null); // stage key being exported
+
+  const handleShare = async (stage, sub, score, published) => {
+    setSharing(stage);
+    try {
+      const dataUrl = await generateShareCard({
+        username:  identity.username,
+        platform:  identity.platform,
+        stage:     STAGE_LABELS[stage],
+        picks:     sub.picks || [],
+        score,
+        published,
+      });
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = `bgis2026-${stage}-picks-${identity.username}.png`;
+      a.click();
+    } catch(e) {
+      showToast("Could not generate image", "error");
+    } finally {
+      setSharing(null);
+    }
+  };
+
   // ── Step logic ────────────────────────────────────────────────
   const step = !identity ? 1 : picks.length < qualifyCount ? 2 : 3;
 
@@ -942,12 +1118,19 @@ export default function App() {
                             })}
                           </div>
                           <div style={{fontSize:11,color:G.muted,marginTop:8}}>Submitted {fmtTime(sub.timestamp)}</div>
-                          {isActive&&!isClosed&&(
-                            <button className="pk-btn pk-btn-acc" style={{marginTop:10,fontSize:12,padding:"6px 12px"}}
-                              onClick={()=>{setPicks(sub.picks||[]);setTab("picks");}}>
-                              Edit Picks
+                          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
+                            {isActive&&!isClosed&&(
+                              <button className="pk-btn pk-btn-acc" style={{fontSize:12,padding:"6px 12px"}}
+                                onClick={()=>{setPicks(sub.picks||[]);setTab("picks");}}>
+                                Edit Picks
+                              </button>
+                            )}
+                            <button className="pk-share-btn"
+                              onClick={()=>handleShare(stage, sub, score, pub)}
+                              disabled={sharing===stage}>
+                              {sharing===stage ? "⏳ Generating..." : "📤 Share Card"}
                             </button>
-                          )}
+                          </div>
                         </>
                       ) : (
                         <div style={{fontSize:13,color:G.muted}}>
