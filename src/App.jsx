@@ -798,14 +798,23 @@ export default function App() {
       const file = new File([blob], filename, { type: "image/png" });
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-      if (isMobile && navigator.share && navigator.canShare?.({ files: [file] })) {
-        // Mobile — native share sheet
-        await navigator.share({
-          files: [file],
-          title: "BGIS 2026 Pick'em",
-          text: `My ${STAGE_LABELS[stage]} picks — make yours at esportsamaze.in`,
-          url: "https://esportsamaze.in/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026/Pickem",
-        });
+      if (isMobile && navigator.share) {
+        try {
+          // Try sharing with file
+          await navigator.share({
+            files: [file],
+            title: "BGIS 2026 Pick'em",
+            text: `My ${STAGE_LABELS[stage]} picks — make yours at esportsamaze.in`,
+            url: "https://esportsamaze.in/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026/Pickem",
+          });
+        } catch(shareErr) {
+          if (shareErr?.name === "AbortError") return; // user cancelled — do nothing
+          // Share failed — fall back to download
+          const a = document.createElement("a");
+          a.href = dataUrl;
+          a.download = filename;
+          a.click();
+        }
       } else {
         // Desktop — download
         const a = document.createElement("a");
