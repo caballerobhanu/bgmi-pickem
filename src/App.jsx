@@ -32,7 +32,7 @@ const STAGE_COLS = {
 
 // ── Stage deadlines (IST = UTC+5:30) ─────────────────────────────
 const DEADLINES = {
-  semis:    new Date("2026-03-12T07:30:00Z"), // 1:00 PM IST
+  semis:    new Date("2026-03-12T09:30:00Z"), // 3:00 PM IST
   survival: new Date("2026-03-16T07:00:00Z"), // 12:30 PM IST
   finals:   new Date("2099-01-01T00:00:00Z"), // set by admin later
 };
@@ -834,7 +834,7 @@ export default function App() {
 
   // ── Render ────────────────────────────────────────────────────
   const stageLabel     = STAGE_LABELS[activeStage];
-  const deadlineStr    = activeStage==="semis" ? "Mar 12 · 1:00 PM IST" : activeStage==="survival" ? "Mar 16 · 12:30 PM IST" : "TBD";
+  const deadlineStr    = activeStage==="semis" ? "Mar 12 · 3:00 PM IST" : activeStage==="survival" ? "Mar 16 · 12:30 PM IST" : "TBD";
 
   return (
     <>
@@ -1110,7 +1110,7 @@ export default function App() {
               <div className="pk-locked">
                 <div className="pk-locked-icon">🔒</div>
                 <div className="pk-locked-title">Submissions are hidden until deadline</div>
-                <div className="pk-locked-sub">All picks will be visible once the Semifinals deadline passes on Mar 12 at 1:00 PM IST.</div>
+                <div className="pk-locked-sub">All picks will be visible once the Semifinals deadline passes on Mar 12 at 3:00 PM IST.</div>
               </div>
             ) : (
               <>
