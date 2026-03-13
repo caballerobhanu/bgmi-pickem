@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import {
   getFirestore, collection, doc,
-  setDoc, deleteDoc, getDoc, onSnapshot, getDocs
+  setDoc, getDoc, getDocs
 } from "firebase/firestore";
 
 // ── Firebase ──────────────────────────────────────────────────────
@@ -40,7 +40,9 @@ const DEADLINES = {
 // ── Constants ─────────────────────────────────────────────────────
 const WIKI_BASE  = "https://esportsamaze.in";
 const FILE_BASE  = `${WIKI_BASE}/index.php?title=Special:Redirect/file/`;
-const ADMIN_PASS = "bgmi2026admin23";
+const ADMIN_PASS   = import.meta.env.VITE_ADMIN_PASS;
+const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET;
+const ADMIN_MODE   = new URLSearchParams(window.location.search).get("hAgqBKNXzaNEkUgCjv3b") !== null;
 const LS_TOKEN   = "bgis2026_token";
 const LS_DOCID   = "bgis2026_docid";
 
@@ -443,31 +445,31 @@ export default function App() {
 
   // ── Firestore: meta ───────────────────────────────────────────
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "pickem", META_DOC), snap => {
-      if (!snap.exists()) return;
-      const d = snap.data();
-      setMeta(d);
-      setActiveStage(d.activeStage || "semis");
-      // Sync admin edits defaults
-      setAdminEdits(prev => {
-        const updated = { ...prev };
-        STAGE_ORDER.forEach(s => {
-          if (!updated[s]) {
-            const sd = d.stages?.[s] || {};
-            updated[s] = {
-              results:        sd.results        || Array(sd.qualifyCount||8).fill(""),
-              published:      sd.published      || false,
-              activeTeams:    (sd.activeTeams||[]).map(t=>typeof t==="string"?{team:t,display_name:"",image:"",image_dark:""}:t),
-              qualifyCount:   sd.qualifyCount   || 8,
-              tournamentName: sd.tournamentName || "",
-            };
-          }
-        });
-        return updated;
+  const fetchMeta = async () => {
+    const snap = await getDoc(doc(db, "pickem", META_DOC));
+    if (!snap.exists()) return;
+    const d = snap.data();
+    setMeta(d);
+    setActiveStage(d.activeStage || "semis");
+    setAdminEdits(prev => {
+      const updated = { ...prev };
+      STAGE_ORDER.forEach(s => {
+        if (!updated[s]) {
+          const sd = d.stages?.[s] || {};
+          updated[s] = {
+            results:        sd.results        || Array(sd.qualifyCount||8).fill(""),
+            published:      sd.published      || false,
+            activeTeams:    (sd.activeTeams||[]).map(t=>typeof t==="string"?{team:t,display_name:"",image:"",image_dark:""}:t),
+            qualifyCount:   sd.qualifyCount   || 8,
+            tournamentName: sd.tournamentName || "",
+          };
+        }
       });
+      return updated;
     });
-    return unsub;
-  }, []);
+  };
+  fetchMeta();
+}, []);
 
   // ── Firestore: my picks across all stages ─────────────────────
   useEffect(() => {
@@ -476,7 +478,7 @@ export default function App() {
       const picks = {};
       for (const stage of STAGE_ORDER) {
         const snap = await getDoc(doc(db, "pickem", META_DOC, STAGE_COLS[stage], identity.docId));
-        picks[stage] = snap.exists() ? snap.data() : null;
+        picks[stage] = (snap.exists() && !snap.data().deleted) ? snap.data() : null;
       }
       setMyPicks(picks);
     };
@@ -489,7 +491,7 @@ useEffect(() => {
       const counts = {};
       for (const stage of STAGE_ORDER) {
         const snap = await getDocs(collection(db, "pickem", META_DOC, STAGE_COLS[stage]));
-        counts[stage] = snap.size;
+        counts[stage] = snap.docs.filter(d => !d.data().deleted).length;
       }
       setSubCounts(counts);
     };
@@ -506,7 +508,7 @@ useEffect(() => {
         const isPast = new Date() > deadline;
         if (!isPast && !adminUnlocked) continue;
         const snap = await getDocs(collection(db, "pickem", META_DOC, STAGE_COLS[stage]));
-        subs[stage] = snap.docs.map(d => d.data());
+        subs[stage] = snap.docs.map(d => d.data()).filter(d => !d.deleted);
       }
       setAllSubs(subs);
     };
@@ -518,7 +520,7 @@ useEffect(() => {
     if (!adminUnlocked) return;
     const fetchAdminSubs = async () => {
       const snap = await getDocs(collection(db, "pickem", META_DOC, STAGE_COLS[adminStage]));
-      setAdminSubs(snap.docs.map(d => d.data()));
+      setAdminSubs(snap.docs.map(d => d.data()).filter(d => !d.deleted));
     };
     fetchAdminSubs();
   }, [adminUnlocked, adminStage]);
@@ -652,9 +654,34 @@ useEffect(() => {
   };
 
   // ── Admin ─────────────────────────────────────────────────────
+  const [adminAttempts, setAdminAttempts]       = useState(0);
+  const [adminLockedUntil, setAdminLockedUntil] = useState(
+    () => parseInt(localStorage.getItem("admin_locked_until") || "0")
+  );
+
   const handleAdminLogin = () => {
-    if (adminPassInput===ADMIN_PASS) setAdminUnlocked(true);
-    else showToast("Wrong password","error");
+    const now = Date.now();
+    if (now < adminLockedUntil) {
+      const mins = Math.ceil((adminLockedUntil - now) / 60000);
+      showToast(`Too many attempts. Try again in ${mins} min`, "error");
+      return;
+    }
+    if (adminPassInput === ADMIN_PASS) {
+      setAdminUnlocked(true);
+      setAdminAttempts(0);
+      localStorage.removeItem("admin_locked_until");
+    } else {
+      const next = adminAttempts + 1;
+      setAdminAttempts(next);
+      if (next >= 5) {
+        const lockUntil = now + 15 * 60 * 1000;
+        localStorage.setItem("admin_locked_until", String(lockUntil));
+        setAdminLockedUntil(lockUntil);
+        showToast("Too many attempts. Locked for 15 minutes.", "error");
+      } else {
+        showToast(`Wrong password. ${5 - next} attempt${5-next===1?"":"s"} left`, "error");
+      }
+    }
   };
 
   const ae = adminEdits[adminStage] || {};
@@ -673,6 +700,7 @@ useEffect(() => {
     if (!ae.activeTeams?.length) { showToast("Select at least one team","error"); return; }
     try {
       await setDoc(doc(db,"pickem",META_DOC), {
+        adminSecret: ADMIN_SECRET,
         activeStage,
         stages: {
           ...(meta?.stages||{}),
@@ -693,6 +721,7 @@ useEffect(() => {
     if (filled.length<(ae.qualifyCount||8)) { showToast(`Fill all ${ae.qualifyCount||8} positions`,"error"); return; }
     try {
       await setDoc(doc(db,"pickem",META_DOC), {
+        adminSecret: ADMIN_SECRET,
         stages: { ...(meta?.stages||{}), [adminStage]: { ...(meta?.stages?.[adminStage]||{}), results:ae.results } }
       }, { merge:true });
       showToast("Results saved");
@@ -702,6 +731,7 @@ useEffect(() => {
   const handlePublishToggle = async (publish) => {
     try {
       await setDoc(doc(db,"pickem",META_DOC), {
+        adminSecret: ADMIN_SECRET,
         stages: { ...(meta?.stages||{}), [adminStage]: { ...(meta?.stages?.[adminStage]||{}), published:publish } }
       }, { merge:true });
       showToast(publish ? "Scores published!" : "Scores hidden");
@@ -713,6 +743,7 @@ useEffect(() => {
     if (!window.confirm(`Start ${label}? Current stage picks will be locked.`)) return;
     try {
       await setDoc(doc(db,"pickem",META_DOC), {
+        adminSecret: ADMIN_SECRET,
         activeStage: stage,
         stages: {
           ...(meta?.stages||{}),
@@ -726,7 +757,11 @@ useEffect(() => {
   const handleDeleteSub = async (docId) => {
     if (!window.confirm("Delete this submission?")) return;
     try {
-      await deleteDoc(doc(db,"pickem",META_DOC,STAGE_COLS[adminStage],docId));
+      await setDoc(doc(db,"pickem",META_DOC,STAGE_COLS[adminStage],docId), {
+        adminSecret: ADMIN_SECRET,
+        deleted: true,
+      }, { merge:true });
+      setAdminSubs(prev => prev.filter(s => s.docId !== docId));
       showToast("Deleted");
     } catch { showToast("Delete failed","error"); }
   };
@@ -873,12 +908,16 @@ useEffect(() => {
             {id:"picks",       label:"Make Picks"},
             {id:"submissions", label:"My Submissions"},
             {id:"leaderboard", label:"Leaderboard"},
-            {id:"admin",       label:"Admin"},
           ].map(t=>(
             <button key={t.id} className={`pk-nav-btn${tab===t.id?" active":""}`} onClick={()=>setTab(t.id)}>
               {t.label}
             </button>
           ))}
+          {ADMIN_MODE && (
+            <button className={`pk-nav-btn${tab==="admin"?" active":""}`} onClick={()=>setTab("admin")}>
+              Admin
+            </button>
+          )}
         </div>
 
         {/* ════════ PICKS TAB ════════ */}
