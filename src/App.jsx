@@ -33,7 +33,7 @@ const STAGE_COLS = {
 // ── Stage deadlines (IST = UTC+5:30) ─────────────────────────────
 const DEADLINES = {
   semis:    new Date("2026-03-12T09:30:00Z"), // 3:00 PM IST
-  survival: new Date("2026-03-16T07:00:00Z"), // 12:30 PM IST
+  survival: new Date("2026-03-16T09:30:00Z"), // 12:30 PM IST
   finals:   new Date("2099-01-01T00:00:00Z"), // set by admin later
 };
 
@@ -897,7 +897,7 @@ useEffect(() => {
 
   // ── Render ────────────────────────────────────────────────────
   const stageLabel     = STAGE_LABELS[activeStage];
-  const deadlineStr    = activeStage==="semis" ? "Mar 12 · 3:00 PM IST" : activeStage==="survival" ? "Mar 16 · 12:30 PM IST" : "TBD";
+  const deadlineStr    = activeStage==="semis" ? "Mar 12 · 3:00 PM IST" : activeStage==="survival" ? "Mar 16 · 3:00 PM IST" : "TBD";
 
   return (
     <>
