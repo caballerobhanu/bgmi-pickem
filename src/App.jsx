@@ -299,7 +299,7 @@ function scoreSubmission(picks, results) {
   if (!results || !results.filter(Boolean).length) return null;
   let pts = 0;
   picks.forEach((t,i) => {
-    if (results.includes(t)) { pts += 5; if (results[i]===t) pts += 5; }
+    if (results.includes(t)) { pts += 10; if (results[i]===t) pts += 5; }
   });
   return pts;
 }
@@ -998,9 +998,9 @@ useEffect(() => {
 
         {/* ── Score bar ── */}
         <div className="pk-score-bar">
-          <span><span className="pk-score-dot" style={{background:G.green}}/>Correct position = 10 pts</span>
-          <span><span className="pk-score-dot" style={{background:G.blue}}/>Correct team, wrong position = 5 pts</span>
-          <span style={{color:G.muted}}>Max {qualifyCount*10} pts per stage</span>
+          <span><span className="pk-score-dot" style={{background:G.green}}/>Correct team + position = 15 pts</span>
+          <span><span className="pk-score-dot" style={{background:G.blue}}/>Correct team, wrong position = 10 pts</span>
+          <span style={{color:G.muted}}>Max {qualifyCount*15} pts per stage</span>
         </div>
 
         {/* ── Nav ── */}
