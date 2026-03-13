@@ -40,7 +40,7 @@ const DEADLINES = {
 // ── Constants ─────────────────────────────────────────────────────
 const WIKI_BASE  = "https://esportsamaze.in";
 const FILE_BASE  = `${WIKI_BASE}/index.php?title=Special:Redirect/file/`;
-const ADMIN_PASS = "bgmi2026admin";
+const ADMIN_PASS = "bgmi2026admin23";
 const LS_TOKEN   = "bgis2026_token";
 const LS_DOCID   = "bgis2026_docid";
 
