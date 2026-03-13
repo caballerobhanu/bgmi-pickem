@@ -593,11 +593,26 @@ useEffect(() => {
   // ── Verify PIN (returning, different browser) ─────────────────
   const handleVerifyPin = async () => {
     if (!/^\d{6}$/.test(pinInput)) { setPinError("PIN must be exactly 6 digits"); return; }
+
+    // Brute force check — keyed per username so others aren't affected
+    const lockKey     = `pin_locked_until_${pendingDocId}`;
+    const attemptsKey = `pin_attempts_${pendingDocId}`;
+    const now         = Date.now();
+    const lockedUntil = parseInt(localStorage.getItem(lockKey) || "0");
+    if (now < lockedUntil) {
+      const mins = Math.ceil((lockedUntil - now) / 60000);
+      setPinError(`Too many wrong attempts. Try again in ${mins} min.`);
+      return;
+    }
+
     setIdLoading(true); setPinError("");
     try {
       const uSnap = await getDoc(doc(db,USERS_COL,pendingDocId));
       const token = await hashPin(pinInput);
       if (uSnap.exists() && uSnap.data().token===token) {
+        // Success — clear lockout state
+        localStorage.removeItem(lockKey);
+        localStorage.removeItem(attemptsKey);
         const clean = usernameInput.trim().replace(/^@/,"").toLowerCase();
         localStorage.setItem(LS_TOKEN, token);
         localStorage.setItem(LS_DOCID, pendingDocId);
@@ -607,7 +622,15 @@ useEffect(() => {
         showToast(`Welcome back @${clean}!`);
         setPinFlow("username"); setPinInput(""); setPinError("");
       } else {
-        setPinError("Incorrect PIN. Try again.");
+        const attempts = parseInt(localStorage.getItem(attemptsKey) || "0") + 1;
+        localStorage.setItem(attemptsKey, String(attempts));
+        if (attempts >= 3) {
+          const lockUntil = now + 15 * 60 * 1000;
+          localStorage.setItem(lockKey, String(lockUntil));
+          setPinError("Too many wrong attempts. Locked for 15 minutes.");
+        } else {
+          setPinError(`Incorrect PIN. ${3 - attempts} attempt${3-attempts===1?"":"s"} left.`);
+        }
       }
     } catch(e) {
       setPinError("Something went wrong. Try again.");
