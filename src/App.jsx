@@ -487,11 +487,29 @@ export default function App() {
     fetchMyPicks();
   }, [identity?.docId]);
 
-  // ── Firestore: sub counts (always) ───────────────────────────
+  // ── Firestore: sub counts — read from baked cache if available
 useEffect(() => {
     const fetchCounts = async () => {
       const counts = {};
       for (const stage of STAGE_ORDER) {
+        // Try localStorage cache first
+        const lsKey = LS_LB_PREFIX + stage;
+        try {
+          const cached = JSON.parse(localStorage.getItem(lsKey) || "null");
+          if (cached?.submissions?.length) {
+            counts[stage] = cached.submissions.length;
+            continue;
+          }
+        } catch {}
+        // Try baked doc (1 read)
+        try {
+          const cacheSnap = await getDoc(doc(db, "pickem", META_DOC, LB_CACHE_COL, stage));
+          if (cacheSnap.exists()) {
+            counts[stage] = cacheSnap.data().count || 0;
+            continue;
+          }
+        } catch {}
+        // Last resort — live fetch (only if no baked doc exists yet)
         const snap = await getDocs(collection(db, "pickem", META_DOC, STAGE_COLS[stage]));
         counts[stage] = snap.docs.filter(d => !d.data().deleted).length;
       }
@@ -782,6 +800,7 @@ useEffect(() => {
         bakedAt:      new Date().toISOString(),
         withResults,
         submissions,
+        count:        submissions.length,
       });
 
       // Bump cacheVersion on meta so all clients invalidate localStorage
