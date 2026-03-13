@@ -472,50 +472,55 @@ export default function App() {
   // ── Firestore: my picks across all stages ─────────────────────
   useEffect(() => {
     if (!identity) { setMyPicks({}); return; }
-    const unsubs = STAGE_ORDER.map(stage => {
-      const col = STAGE_COLS[stage];
-      const ref = doc(db, "pickem", META_DOC, col, identity.docId);
-      return onSnapshot(ref, snap => {
-        setMyPicks(prev => ({ ...prev, [stage]: snap.exists() ? snap.data() : null }));
-      });
-    });
-    return () => unsubs.forEach(u => u());
-  }, [identity]);
+    const fetchMyPicks = async () => {
+      const picks = {};
+      for (const stage of STAGE_ORDER) {
+        const snap = await getDoc(doc(db, "pickem", META_DOC, STAGE_COLS[stage], identity.docId));
+        picks[stage] = snap.exists() ? snap.data() : null;
+      }
+      setMyPicks(picks);
+    };
+    fetchMyPicks();
+  }, [identity?.docId]);
 
   // ── Firestore: sub counts (always) ───────────────────────────
-  useEffect(() => {
-    const unsubs = STAGE_ORDER.map(stage => {
-      const ref = collection(db, "pickem", META_DOC, STAGE_COLS[stage]);
-      return onSnapshot(ref, snap => {
-        setSubCounts(prev => ({ ...prev, [stage]: snap.size }));
-      });
-    });
-    return () => unsubs.forEach(u => u());
+useEffect(() => {
+    const fetchCounts = async () => {
+      const counts = {};
+      for (const stage of STAGE_ORDER) {
+        const snap = await getDocs(collection(db, "pickem", META_DOC, STAGE_COLS[stage]));
+        counts[stage] = snap.size;
+      }
+      setSubCounts(counts);
+    };
+    fetchCounts();
   }, []);
 
   // ── Firestore: all submissions post-deadline or admin ─────────
-  useEffect(() => {
+useEffect(() => {
     if (!meta) return;
-    const unsubs = STAGE_ORDER.map(stage => {
-      const sd = meta.stages?.[stage];
-      if (!sd) return () => {};
-      const deadline = DEADLINES[stage];
-      const isPast   = new Date() > deadline;
-      if (!isPast && !adminUnlocked) return () => {};
-      const ref = collection(db, "pickem", META_DOC, STAGE_COLS[stage]);
-      return onSnapshot(ref, snap => {
-        setAllSubs(prev => ({ ...prev, [stage]: snap.docs.map(d => d.data()) }));
-      });
-    });
-    return () => unsubs.forEach(u => u && u());
-  }, [meta, adminUnlocked]);
+    const fetchSubs = async () => {
+      const subs = {};
+      for (const stage of STAGE_ORDER) {
+        const deadline = DEADLINES[stage];
+        const isPast = new Date() > deadline;
+        if (!isPast && !adminUnlocked) continue;
+        const snap = await getDocs(collection(db, "pickem", META_DOC, STAGE_COLS[stage]));
+        subs[stage] = snap.docs.map(d => d.data());
+      }
+      setAllSubs(subs);
+    };
+    fetchSubs();
+  }, [meta?.activeStage, adminUnlocked]);
 
   // ── Admin: fetch all subs for admin view ─────────────────────
-  useEffect(() => {
+useEffect(() => {
     if (!adminUnlocked) return;
-    const ref = collection(db, "pickem", META_DOC, STAGE_COLS[adminStage]);
-    const unsub = onSnapshot(ref, snap => setAdminSubs(snap.docs.map(d => d.data())));
-    return unsub;
+    const fetchAdminSubs = async () => {
+      const snap = await getDocs(collection(db, "pickem", META_DOC, STAGE_COLS[adminStage]));
+      setAdminSubs(snap.docs.map(d => d.data()));
+    };
+    fetchAdminSubs();
   }, [adminUnlocked, adminStage]);
 
   const showToast = (msg, type="success") => {
