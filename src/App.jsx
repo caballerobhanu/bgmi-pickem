@@ -937,20 +937,18 @@ useEffect(() => {
                 </div>
                 <button className="pk-submit" style={{maxWidth:240}} onClick={()=>{setSubmitted(false);setPicks([]);}}>Edit Picks</button>
               </div>
-            ) : isClosed ? (
-              <div className="pk-loading" style={{color:G.red,fontWeight:600,fontSize:15}}>
-                ⛔ {stageLabel} submissions closed.
-              </div>
             ) : (
               <>
                 {/* Steps */}
-                <div className="pk-steps">
-                  {[{n:1,l:"Username"},{n:2,l:`Pick ${qualifyCount} Teams`},{n:3,l:"Submit"}].map(s=>(
-                    <div key={s.n} className={`pk-step${step===s.n?" active":step>s.n?" done":""}`}>
-                      <span className="pk-step-n">{step>s.n?"✓":s.n}</span>{s.l}
-                    </div>
-                  ))}
-                </div>
+                {!isClosed && (
+                  <div className="pk-steps">
+                    {[{n:1,l:"Username"},{n:2,l:`Pick ${qualifyCount} Teams`},{n:3,l:"Submit"}].map(s=>(
+                      <div key={s.n} className={`pk-step${step===s.n?" active":step>s.n?" done":""}`}>
+                        <span className="pk-step-n">{step>s.n?"✓":s.n}</span>{s.l}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Username / PIN screens */}
                 {!identity ? (
@@ -1025,7 +1023,12 @@ useEffect(() => {
                 )}
 
                 {/* Picks */}
-                {identity && (
+                {identity && isClosed && (
+                  <div className="pk-loading" style={{color:G.red,fontWeight:600,fontSize:15,marginTop:24}}>
+                    ⛔ {stageLabel} submissions are closed. Check your picks in the My Submissions tab.
+                  </div>
+                )}
+                {identity && !isClosed && (
                   <>
                     <div className="pk-lbl">Your picks — {picks.length}/{qualifyCount}</div>
                     <div className="pk-slots">
@@ -1081,7 +1084,8 @@ useEffect(() => {
               <div className="pk-locked">
                 <div className="pk-locked-icon">👤</div>
                 <div className="pk-locked-title">Sign in to see your picks</div>
-                <div className="pk-locked-sub">Go to Make Picks, enter your username and PIN to view your submissions.</div>
+                <div className="pk-locked-sub">Go to Make Picks, enter your username and PIN — even if submissions are closed.</div>
+                <button className="pk-btn pk-btn-acc" style={{marginTop:16}} onClick={()=>setTab("picks")}>Go to Make Picks →</button>
               </div>
             ) : (
               <>
