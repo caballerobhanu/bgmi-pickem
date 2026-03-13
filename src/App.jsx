@@ -33,7 +33,7 @@ const STAGE_COLS = {
 // ── Stage deadlines (IST = UTC+5:30) ─────────────────────────────
 const DEADLINES = {
   semis:    new Date("2026-03-12T09:30:00Z"), // 3:00 PM IST
-  survival: new Date("2026-03-16T09:30:00Z"), // 12:30 PM IST
+  survival: new Date("2026-03-16T07:00:00Z"), // 12:30 PM IST
   finals:   new Date("2099-01-01T00:00:00Z"), // set by admin later
 };
 
@@ -52,7 +52,9 @@ const STAGE_LABELS = {
   survival: "Survival Stage",
   finals:   "Grand Finals",
 };
-const STAGE_ORDER = ["semis", "survival", "finals"];
+const STAGE_ORDER   = ["semis", "survival", "finals"];
+const LB_CACHE_COL  = "leaderboard_cache";
+const LS_LB_PREFIX  = "bgis2026_lb_";
 
 // ── Palette ───────────────────────────────────────────────────────
 const G = {
@@ -498,22 +500,50 @@ useEffect(() => {
     fetchCounts();
   }, []);
 
-  // ── Firestore: all submissions post-deadline or admin ─────────
-useEffect(() => {
+  // ── Firestore: leaderboard — cache-first, version-gated ──────
+  useEffect(() => {
     if (!meta) return;
     const fetchSubs = async () => {
       const subs = {};
       for (const stage of STAGE_ORDER) {
-        const deadline = DEADLINES[stage];
-        const isPast = new Date() > deadline;
+        const deadline  = DEADLINES[stage];
+        const isPast    = new Date() > deadline;
         if (!isPast && !adminUnlocked) continue;
-        const snap = await getDocs(collection(db, "pickem", META_DOC, STAGE_COLS[stage]));
-        subs[stage] = snap.docs.map(d => d.data()).filter(d => !d.deleted);
+
+        // Admin always reads live (needs fresh data for baking)
+        if (adminUnlocked) {
+          const snap = await getDocs(collection(db, "pickem", META_DOC, STAGE_COLS[stage]));
+          subs[stage] = snap.docs.map(d => d.data()).filter(d => !d.deleted);
+          continue;
+        }
+
+        // Check cache version from meta
+        const serverVersion = meta?.stages?.[stage]?.cacheVersion || 0;
+        const lsKey         = LS_LB_PREFIX + stage;
+        try {
+          const cached = JSON.parse(localStorage.getItem(lsKey) || "null");
+          if (cached && cached.version === serverVersion && cached.submissions?.length) {
+            subs[stage] = cached.submissions; // cache hit — zero Firestore reads
+            continue;
+          }
+        } catch {}
+
+        // Cache miss — fetch the single baked doc (1 read)
+        const cacheSnap = await getDoc(doc(db, "pickem", META_DOC, LB_CACHE_COL, stage));
+        if (cacheSnap.exists()) {
+          const data = cacheSnap.data();
+          subs[stage] = data.submissions || [];
+          localStorage.setItem(lsKey, JSON.stringify({ version: serverVersion, submissions: subs[stage] }));
+        } else {
+          // No baked doc yet — fall back to live fetch
+          const snap = await getDocs(collection(db, "pickem", META_DOC, STAGE_COLS[stage]));
+          subs[stage] = snap.docs.map(d => d.data()).filter(d => !d.deleted);
+        }
       }
       setAllSubs(subs);
     };
     fetchSubs();
-  }, [meta?.activeStage, adminUnlocked]);
+  }, [meta?.activeStage, meta?.stages, adminUnlocked]);
 
   // ── Admin: fetch all subs for admin view ─────────────────────
 useEffect(() => {
@@ -739,6 +769,34 @@ useEffect(() => {
     } catch(e) { showToast("Save failed","error"); }
   };
 
+  // ── Bake leaderboard cache ────────────────────────────────────
+  const bakeLeaderboard = async (stage, withResults = false) => {
+    try {
+      // Fetch all live submissions
+      const snap = await getDocs(collection(db, "pickem", META_DOC, STAGE_COLS[stage]));
+      const submissions = snap.docs.map(d => d.data()).filter(d => !d.deleted);
+
+      // Write baked doc — 1 document, all submissions inside
+      await setDoc(doc(db, "pickem", META_DOC, LB_CACHE_COL, stage), {
+        adminSecret:  ADMIN_SECRET,
+        bakedAt:      new Date().toISOString(),
+        withResults,
+        submissions,
+      });
+
+      // Bump cacheVersion on meta so all clients invalidate localStorage
+      const currentVersion = meta?.stages?.[stage]?.cacheVersion || 0;
+      await setDoc(doc(db, "pickem", META_DOC), {
+        adminSecret: ADMIN_SECRET,
+        stages: { ...(meta?.stages||{}), [stage]: { ...(meta?.stages?.[stage]||{}), cacheVersion: currentVersion + 1 } }
+      }, { merge:true });
+
+      // Invalidate own localStorage too
+      localStorage.removeItem(LS_LB_PREFIX + stage);
+      showToast(`Leaderboard baked — ${submissions.length} submissions cached`);
+    } catch(e) { showToast("Bake failed", "error"); console.error(e); }
+  };
+
   const handleSaveResults = async () => {
     const filled = (ae.results||[]).filter(Boolean);
     if (filled.length<(ae.qualifyCount||8)) { showToast(`Fill all ${ae.qualifyCount||8} positions`,"error"); return; }
@@ -758,6 +816,7 @@ useEffect(() => {
         stages: { ...(meta?.stages||{}), [adminStage]: { ...(meta?.stages?.[adminStage]||{}), published:publish } }
       }, { merge:true });
       showToast(publish ? "Scores published!" : "Scores hidden");
+      if (publish) await bakeLeaderboard(adminStage, true); // auto-bake with scores on publish
     } catch(e) { showToast("Failed","error"); }
   };
 
@@ -897,7 +956,7 @@ useEffect(() => {
 
   // ── Render ────────────────────────────────────────────────────
   const stageLabel     = STAGE_LABELS[activeStage];
-  const deadlineStr    = activeStage==="semis" ? "Mar 12 · 3:00 PM IST" : activeStage==="survival" ? "Mar 16 · 3:00 PM IST" : "TBD";
+  const deadlineStr    = activeStage==="semis" ? "Mar 12 · 3:00 PM IST" : activeStage==="survival" ? "Mar 16 · 12:30 PM IST" : "TBD";
 
   return (
     <>
@@ -1403,6 +1462,10 @@ useEffect(() => {
                       {!ae.published
                         ?<button className="pk-btn pk-btn-acc" onClick={()=>handlePublishToggle(true)}>Publish Scores</button>
                         :<button className="pk-btn pk-btn-red" onClick={()=>handlePublishToggle(false)}>Hide Scores</button>}
+                      <button className="pk-btn" style={{background:"#6c47ff",color:"#fff"}}
+                        onClick={()=>bakeLeaderboard(adminStage, isPublished(adminStage))}>
+                        🗜 Bake Leaderboard
+                      </button>
                     </div>
                   </div>
                 </div>
