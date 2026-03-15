@@ -303,6 +303,24 @@ function scoreSubmission(picks, results) {
   });
   return pts;
 }
+// Tiebreaker sort — cascade through positions, then earlier submission
+function tiebreakerSort(a, b, results) {
+  // Level 1 — total points
+  if (b.score !== a.score) return b.score - a.score;
+  // Level 2 — cascade through each position
+  if (results && results.length) {
+    for (let i = 0; i < results.length; i++) {
+      const correctTeam = results[i];
+      if (!correctTeam) continue;
+      const aCorrect = a.picks?.[i] === correctTeam ? 1 : 0;
+      const bCorrect = b.picks?.[i] === correctTeam ? 1 : 0;
+      if (bCorrect !== aCorrect) return bCorrect - aCorrect;
+    }
+  }
+  // Level 3 — earlier submission wins
+  return new Date(a.createdAt||0) - new Date(b.createdAt||0);
+}
+
 function logoUrl(filename, teamName) {
   const f = (filename && filename!=="") ? filename : (teamName ? teamName+".png" : null);
   if (!f) return "";
@@ -906,7 +924,7 @@ useEffect(() => {
     const results = getStageResults(stage);
     const pub     = isPublished(stage);
     return pub
-      ? [...subs].map(s=>({...s,score:scoreSubmission(s.picks,results)})).sort((a,b)=>b.score-a.score)
+      ? [...subs].map(s=>({...s,score:scoreSubmission(s.picks,results)})).sort((a,b)=>tiebreakerSort(a,b,results))
       : [...subs].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
   };
 
@@ -924,7 +942,30 @@ useEffect(() => {
     return Object.values(map).map(u=>({
       ...u,
       total: (u.semis||0) + (u.survival||0)
-    })).sort((a,b)=>b.total-a.total);
+    })).sort((a,b)=>{
+      // Level 1 — total points
+      if (b.total !== a.total) return b.total - a.total;
+      // Level 2 — cascade semis positions first, then survival
+      for (const stage of ["semis","survival"]) {
+        const results = getStageResults(stage);
+        const pub     = isPublished(stage);
+        if (!pub || !results?.length) continue;
+        const aSubs = (allSubs[stage]||[]).find(s=>s.docId===a.docId);
+        const bSubs = (allSubs[stage]||[]).find(s=>s.docId===b.docId);
+        if (!aSubs || !bSubs) continue;
+        for (let i = 0; i < results.length; i++) {
+          const correctTeam = results[i];
+          if (!correctTeam) continue;
+          const aCorrect = aSubs.picks?.[i] === correctTeam ? 1 : 0;
+          const bCorrect = bSubs.picks?.[i] === correctTeam ? 1 : 0;
+          if (bCorrect !== aCorrect) return bCorrect - aCorrect;
+        }
+      }
+      // Level 3 — earlier semis submission
+      const aSub = (allSubs["semis"]||[]).find(s=>s.docId===a.docId);
+      const bSub = (allSubs["semis"]||[]).find(s=>s.docId===b.docId);
+      return new Date(aSub?.createdAt||0) - new Date(bSub?.createdAt||0);
+    });
   };
 
   // Available lb tabs — only stages with past deadline
