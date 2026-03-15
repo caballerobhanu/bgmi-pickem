@@ -803,11 +803,13 @@ useEffect(() => {
         count:        submissions.length,
       });
 
-      // Bump cacheVersion on meta so all clients invalidate localStorage
-      const currentVersion = meta?.stages?.[stage]?.cacheVersion || 0;
+      // Always fetch fresh meta before bumping cacheVersion
+      const freshSnap = await getDoc(doc(db, "pickem", META_DOC));
+      const freshMeta = freshSnap.exists() ? freshSnap.data() : {};
+      const currentVersion = freshMeta.stages?.[stage]?.cacheVersion || 0;
       await setDoc(doc(db, "pickem", META_DOC), {
         adminSecret: ADMIN_SECRET,
-        stages: { ...(meta?.stages||{}), [stage]: { ...(meta?.stages?.[stage]||{}), cacheVersion: currentVersion + 1 } }
+        stages: { ...(freshMeta.stages||{}), [stage]: { ...(freshMeta.stages?.[stage]||{}), cacheVersion: currentVersion + 1 } }
       }, { merge:true });
 
       // Invalidate own localStorage too
@@ -820,22 +822,32 @@ useEffect(() => {
     const filled = (ae.results||[]).filter(Boolean);
     if (filled.length<(ae.qualifyCount||8)) { showToast(`Fill all ${ae.qualifyCount||8} positions`,"error"); return; }
     try {
+      // Fetch fresh meta to avoid overwriting other fields with stale state
+      const freshSnap = await getDoc(doc(db, "pickem", META_DOC));
+      const freshMeta = freshSnap.exists() ? freshSnap.data() : {};
       await setDoc(doc(db,"pickem",META_DOC), {
         adminSecret: ADMIN_SECRET,
-        stages: { ...(meta?.stages||{}), [adminStage]: { ...(meta?.stages?.[adminStage]||{}), results:ae.results } }
+        stages: { ...(freshMeta.stages||{}), [adminStage]: { ...(freshMeta.stages?.[adminStage]||{}), results:ae.results } }
       }, { merge:true });
+      // Sync local meta state
+      setMeta(prev => ({ ...prev, stages: { ...(freshMeta.stages||{}), [adminStage]: { ...(freshMeta.stages?.[adminStage]||{}), results:ae.results } } }));
       showToast("Results saved");
     } catch(e) { showToast("Save failed","error"); }
   };
 
   const handlePublishToggle = async (publish) => {
     try {
+      // Always fetch fresh meta before publishing to avoid overwriting latest results
+      const freshSnap = await getDoc(doc(db, "pickem", META_DOC));
+      const freshMeta = freshSnap.exists() ? freshSnap.data() : {};
       await setDoc(doc(db,"pickem",META_DOC), {
         adminSecret: ADMIN_SECRET,
-        stages: { ...(meta?.stages||{}), [adminStage]: { ...(meta?.stages?.[adminStage]||{}), published:publish } }
+        stages: { ...(freshMeta.stages||{}), [adminStage]: { ...(freshMeta.stages?.[adminStage]||{}), published:publish } }
       }, { merge:true });
+      // Sync local meta state with fresh data
+      setMeta({ ...freshMeta, stages: { ...(freshMeta.stages||{}), [adminStage]: { ...(freshMeta.stages?.[adminStage]||{}), published:publish } } });
       showToast(publish ? "Scores published!" : "Scores hidden");
-      if (publish) await bakeLeaderboard(adminStage, true); // auto-bake with scores on publish
+      if (publish) await bakeLeaderboard(adminStage, true);
     } catch(e) { showToast("Failed","error"); }
   };
 
