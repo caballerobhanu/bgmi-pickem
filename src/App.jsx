@@ -1028,7 +1028,7 @@ useEffect(() => {
 
   // ── Render ────────────────────────────────────────────────────
   const stageLabel     = STAGE_LABELS[activeStage];
-  const deadlineStr    = activeStage==="semis" ? "Mar 12 · 3:00 PM IST" : activeStage==="survival" ? "Mar 16 · 12:30 PM IST" : "TBD";
+  const deadlineStr    = activeStage==="semis" ? "Mar 12 · 3:00 PM IST" : activeStage==="survival" ? "Mar 16 · 2:30 PM IST" : "TBD";
 
   return (
     <>
