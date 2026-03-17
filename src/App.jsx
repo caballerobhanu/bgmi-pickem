@@ -307,8 +307,12 @@ function scoreSubmission(picks, results) {
 function tiebreakerSort(a, b, results) {
   // Level 1 — total points
   if (b.score !== a.score) return b.score - a.score;
-  // Level 2 — cascade through each position
   if (results && results.length) {
+    // Level 2 — more correct teams (regardless of position)
+    const aCorrectCount = (a.picks||[]).filter(p => results.includes(p)).length;
+    const bCorrectCount = (b.picks||[]).filter(p => results.includes(p)).length;
+    if (bCorrectCount !== aCorrectCount) return bCorrectCount - aCorrectCount;
+    // Level 3 — cascade through each position (#1 first)
     for (let i = 0; i < results.length; i++) {
       const correctTeam = results[i];
       if (!correctTeam) continue;
@@ -317,7 +321,7 @@ function tiebreakerSort(a, b, results) {
       if (bCorrect !== aCorrect) return bCorrect - aCorrect;
     }
   }
-  // Level 3 — earlier submission wins
+  // Level 4 — earlier submission wins
   return new Date(a.createdAt||0) - new Date(b.createdAt||0);
 }
 
@@ -945,7 +949,19 @@ useEffect(() => {
     })).sort((a,b)=>{
       // Level 1 — total points
       if (b.total !== a.total) return b.total - a.total;
-      // Level 2 — cascade semis positions first, then survival
+      // Level 2 — more correct teams across all published stages
+      let aTotalCorrect = 0, bTotalCorrect = 0;
+      for (const stage of ["semis","survival"]) {
+        const results = getStageResults(stage);
+        const pub     = isPublished(stage);
+        if (!pub || !results?.length) continue;
+        const aSubs = (allSubs[stage]||[]).find(s=>s.docId===a.docId);
+        const bSubs = (allSubs[stage]||[]).find(s=>s.docId===b.docId);
+        if (aSubs) aTotalCorrect += (aSubs.picks||[]).filter(p => results.includes(p)).length;
+        if (bSubs) bTotalCorrect += (bSubs.picks||[]).filter(p => results.includes(p)).length;
+      }
+      if (bTotalCorrect !== aTotalCorrect) return bTotalCorrect - aTotalCorrect;
+      // Level 3 — cascade positions across stages (#1 semis first, then survival)
       for (const stage of ["semis","survival"]) {
         const results = getStageResults(stage);
         const pub     = isPublished(stage);
@@ -961,7 +977,7 @@ useEffect(() => {
           if (bCorrect !== aCorrect) return bCorrect - aCorrect;
         }
       }
-      // Level 3 — earlier semis submission
+      // Level 4 — earlier semis submission
       const aSub = (allSubs["semis"]||[]).find(s=>s.docId===a.docId);
       const bSub = (allSubs["semis"]||[]).find(s=>s.docId===b.docId);
       return new Date(aSub?.createdAt||0) - new Date(bSub?.createdAt||0);
