@@ -1259,6 +1259,34 @@ useEffect(() => {
               </div>
             ) : (
               <>
+                {/* ── Overall rank banner ── */}
+                {(() => {
+                  const bothPub = isPublished("semis") && isPublished("survival");
+                  if (!bothPub) return null;
+                  const combined   = getCombinedLb();
+                  const overallRank = combined.findIndex(u => u.docId === identity.docId) + 1;
+                  if (!overallRank) return null;
+                  const total = combined.length;
+                  const medal = overallRank===1?"🥇":overallRank===2?"🥈":overallRank===3?"🥉":null;
+                  return (
+                    <div style={{
+                      background: overallRank<=3 ? "rgba(245,158,11,.1)" : "rgba(15,23,42,.04)",
+                      border: `1.5px solid ${overallRank<=3 ? "rgba(245,158,11,.35)" : "rgba(15,23,42,.12)"}`,
+                      borderRadius:12, padding:"16px 20px", marginBottom:16,
+                      display:"flex", alignItems:"center", gap:14,
+                    }}>
+                      <div style={{fontSize:36}}>{medal || "🏆"}</div>
+                      <div>
+                        <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:900,color:G.text}}>
+                          Overall Rank #{overallRank} <span style={{fontSize:15,fontWeight:600,color:G.muted}}>/ {total}</span>
+                        </div>
+                        <div style={{fontSize:13,color:G.sub,marginTop:3}}>
+                          Combined Semis + Survival leaderboard
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
                 {STAGE_ORDER.filter(s => {
                   // Show stage card if: it's the active stage, or deadline has passed, or user has a submission
                   return s===activeStage || new Date()>DEADLINES[s] || myPicks[s];
@@ -1269,12 +1297,28 @@ useEffect(() => {
                   const past    = isDeadlinePast(stage);
                   const score   = pub && sub ? scoreSubmission(sub.picks, results) : null;
                   const isActive = stage===activeStage;
+                  // Per-stage rank
+                  const lbData  = allSubs[stage]?.length ? getLbData(stage) : null;
+                  const myRank  = lbData && sub ? lbData.findIndex(s => s.docId === identity.docId) + 1 : null;
+                  const total   = lbData?.length || subCounts[stage] || null;
 
                   return (
                     <div key={stage} className="pk-sub-card">
                       <div className="pk-sub-card-header">
                         <div className="pk-sub-stage-label">{STAGE_LABELS[stage]}</div>
                         {score!==null && <div className="pk-sub-score">{score} pts</div>}
+                        {myRank && (
+                          <div style={{
+                            fontFamily:"'Barlow Condensed',sans-serif",
+                            fontSize:13, fontWeight:700,
+                            background: myRank<=3 ? "rgba(245,158,11,.12)" : "rgba(37,99,235,.08)",
+                            border: `1px solid ${myRank<=3 ? "rgba(245,158,11,.3)" : "rgba(37,99,235,.2)"}`,
+                            color: myRank<=3 ? "#92400e" : G.blue,
+                            borderRadius:6, padding:"2px 9px",
+                          }}>
+                            {myRank===1?"🥇":myRank===2?"🥈":myRank===3?"🥉":"#"+myRank}{total ? ` / ${total}` : ""}
+                          </div>
+                        )}
                         <span className={`pk-sub-status ${pub?"published":past?"pending":"open"}`}>
                           {pub ? "Results Out" : past ? "Awaiting Results" : "Open"}
                         </span>
