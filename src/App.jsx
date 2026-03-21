@@ -439,6 +439,30 @@ const CSS = `
   .acc-grid { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
   @media(max-width:700px) { .acc-grid { grid-template-columns:1fr; } }
 
+
+  /* Footer */
+  .footer { background:#0f172a; padding:28px 16px 24px; margin-top:40px; }
+  .footer-logo { height:28px; object-fit:contain; opacity:.9; display:block; margin:0 auto 16px; }
+  .footer-socials { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  .social-btn { display:inline-flex; align-items:center; gap:6px; padding:7px 13px; border-radius:20px; font-size:12px; font-weight:600; text-decoration:none; transition:all .15s; border:1px solid rgba(255,255,255,.15); color:rgba(255,255,255,.8); background:rgba(255,255,255,.06); }
+  .social-btn:hover { background:rgba(255,255,255,.12); color:#fff; border-color:rgba(255,255,255,.3); }
+  .social-btn.instagram:hover { background:rgba(225,48,108,.2); border-color:rgba(225,48,108,.4); }
+  .social-btn.x:hover { background:rgba(255,255,255,.15); }
+  .social-btn.youtube:hover { background:rgba(255,0,0,.2); border-color:rgba(255,0,0,.4); }
+  .footer-links { display:flex; justify-content:center; gap:16px; flex-wrap:wrap; margin-bottom:14px; }
+  .footer-link { font-size:11px; font-weight:600; color:rgba(255,255,255,.5); text-decoration:none; transition:color .15s; }
+  .footer-link:hover { color:rgba(255,255,255,.9); }
+  .footer-divider { border:none; border-top:1px solid rgba(255,255,255,.08); margin:14px 0; }
+  .footer-promo { text-align:center; font-size:12px; color:rgba(255,255,255,.45); line-height:1.6; }
+  .footer-promo a { color:#60a5fa; text-decoration:none; font-weight:600; }
+  .footer-promo a:hover { color:#93c5fd; }
+  .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.25); margin-top:12px; }
+
+  /* Hero social strip */
+  .hero-social-strip { display:flex; justify-content:center; gap:8px; flex-wrap:wrap; position:relative; z-index:1; margin-top:10px; }
+  .hero-social { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; text-decoration:none; color:rgba(255,255,255,.65); background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); transition:all .15s; }
+  .hero-social:hover { color:#fff; background:rgba(255,255,255,.13); }
+
   @media(max-width:600px) {
     .hero { padding:20px 14px 18px; }
     .hero-logo { height:52px; }
@@ -1061,6 +1085,14 @@ export default function App() {
             <span className="badge badge-blue">16 Teams · 215 pts max</span>
             <a href="https://esportsamaze.in/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026" target="_blank" rel="noopener noreferrer" className="tour-link">🔗 Tournament Page</a>
           </div>
+          {/* Social strip */}
+          <div className="hero-social-strip">
+            <a href="https://instagram.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="hero-social">📸 Instagram</a>
+            <a href="https://x.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="hero-social">𝕏 Twitter</a>
+            <a href="https://youtube.com/@esportsamaze" target="_blank" rel="noopener noreferrer" className="hero-social">▶ YouTube</a>
+            <a href="https://esportsamaze.in" target="_blank" rel="noopener noreferrer" className="hero-social">📖 Wiki</a>
+            <a href="https://esportsamaze.com" target="_blank" rel="noopener noreferrer" className="hero-social">📰 News</a>
+          </div>
         </div>
 
         <div className="score-strip">
@@ -1099,7 +1131,7 @@ export default function App() {
                         <div className="auth-title">Enter your username</div>
                         <div className="auth-sub">Pick any username (letters, numbers, underscores). You'll use a 6-digit PIN from other devices.</div>
                         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                          <input className="input" style={{flex:1,minWidth:150}} placeholder="e.g. esportsamaze" value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleConfirm()}/>
+                          <input className="input" style={{flex:1,minWidth:150}} placeholder="e.g. bgmi_fan_2026" value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleConfirm()}/>
                           <button className="btn btn-primary" onClick={handleConfirm} disabled={idLoading||!usernameInput.trim()}>{idLoading?"Checking...":"Continue →"}</button>
                         </div>
                       </div>
@@ -1470,6 +1502,32 @@ export default function App() {
         )}
 
         {toast&&<div className={`toast${toast.type==="error"?" err":""}`}>{toast.msg}</div>}
+
+        {/* Footer */}
+        <div className="footer">
+          <a href="https://esportsamaze.in" target="_blank" rel="noopener noreferrer">
+            <img src="/logos/esportsamaze_singleline.png" className="footer-logo" alt="EsportsAmaze"/>
+          </a>
+          <div className="footer-socials">
+            <a href="https://instagram.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="social-btn instagram">📸 Instagram</a>
+            <a href="https://x.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="social-btn x">𝕏 Twitter / X</a>
+            <a href="https://youtube.com/@esportsamaze" target="_blank" rel="noopener noreferrer" className="social-btn youtube">▶ YouTube</a>
+          </div>
+          <div className="footer-links">
+            <a href="https://esportsamaze.in" target="_blank" rel="noopener noreferrer" className="footer-link">📖 Wiki (Beta)</a>
+            <a href="https://esportsamaze.com" target="_blank" rel="noopener noreferrer" className="footer-link">📰 News & Media</a>
+            <a href="https://esportsamaze.in/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026" target="_blank" rel="noopener noreferrer" className="footer-link">🏆 BGIS 2026</a>
+          </div>
+          <hr className="footer-divider"/>
+          <div className="footer-promo">
+            Interested in brand partnerships or promotions?<br/>
+            <a href="mailto:connect@esportsamaze.com">connect@esportsamaze.com</a> · <a href="https://esportsamaze.com" target="_blank" rel="noopener noreferrer">esportsamaze.com</a>
+          </div>
+          <div className="footer-made">
+            Made with ❤️ by EsportsAmaze · BGIS 2026 Grand Finals Pick'em
+          </div>
+        </div>
+
       </div>
     </>
   );
