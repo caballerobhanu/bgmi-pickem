@@ -459,7 +459,7 @@ const CSS = `
   .footer-promo { text-align:center; font-size:12px; color:rgba(255,255,255,.45); line-height:1.6; }
   .footer-promo a { color:#60a5fa; text-decoration:none; font-weight:600; }
   .footer-promo a:hover { color:#93c5fd; }
-  .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.25); margin-top:12px; }
+  .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.55); margin-top:12px; }
 
 
   @media(max-width:600px) {
