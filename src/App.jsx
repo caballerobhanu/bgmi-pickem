@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, collection, setDoc, getDoc, getDocs } from "firebase/firestore";
 
@@ -10,7 +10,6 @@ const firebaseConfig = {
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
-
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
 
@@ -19,17 +18,25 @@ const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET;
 const ADMIN_PATH   = import.meta.env.VITE_ADMIN_PATH || "bgis-chennai-2026-arth";
 const IS_ADMIN     = window.location.pathname.replace(/^\//, "") === ADMIN_PATH;
 
-const META_DOC     = "bgis2026_finals_meta";
-const SUBS_COL     = "bgis2026_finals_submissions";
-const LB_CACHE_DOC = "bgis2026_finals_lb_cache";
-const USERS_COL    = "bgis2026_finals_users";
-const DEADLINE     = new Date("2026-03-27T07:30:00Z");
-const LS_TOKEN     = "bgis2026f_token";
-const LS_DOCID     = "bgis2026f_docid";
-const LS_LB        = "bgis2026f_lb_cache";
+const META_DOC      = "bgis2026_finals_meta";
+const SUBS_COL      = "bgis2026_finals_submissions";
+const LB_META_DOC   = "bgis2026_lb_meta";
+const LB_PAGE_PREFIX= "bgis2026_lb_page_";
+const USERS_COL     = "bgis2026_finals_users";
+const DEADLINE      = new Date("2026-03-27T07:30:00Z");
+
+const LS_TOKEN      = "bgis2026f_token";
+const LS_DOCID      = "bgis2026f_docid";
+const LS_META       = "bgis2026f_meta";
+const LS_MY_SUB     = "bgis2026f_my_sub";
+const LS_LB_META    = "bgis2026f_lb_meta";
+const LS_LB_PAGE    = "bgis2026f_lb_page_";
+const META_TTL      = 20 * 60 * 1000; // 20 minutes
+const PAGE_SIZE     = 500;
 
 const LOGO = (name) => `/logos/${name}.png`;
 
+// ── Teams ─────────────────────────────────────────────────────────
 const TEAMS = [
   { id:"genesis",   name:"Genesis Esports",        logo:"Genesis_Esports",        igl:"Gravity",   players:["Gravity","Viper","Zap","HunterZ","Fury"] },
   { id:"godlike",   name:"Hero Xtreme GodLike",    logo:"Hero_Xtreme_GodLike",    igl:"Manya",     players:["Manya","Admino","Spower","Jonathan","Godz"] },
@@ -50,6 +57,7 @@ const TEAMS = [
 ];
 const ALL_IGLS = TEAMS.map(t => ({ player:t.igl, team:t.name, teamId:t.id, logo:t.logo }));
 
+// ── Scoring ───────────────────────────────────────────────────────
 function calcPredictionScore(picks, results) {
   if (!results || !picks) return null;
   let score = 0;
@@ -90,6 +98,125 @@ function calcFantasyScore(picks, fantasyData) {
   return score;
 }
 
+// ── Tiebreaker sort ───────────────────────────────────────────────
+// 1. Total score
+// 2. Champion correct
+// 3. Finals MVP (1st > 2nd > 3rd)
+// 4. Event MVP (1st > 2nd > 3rd)
+// 5. More correct teams in top5
+// 6. Top5 rank order (position accuracy)
+// 7. Best IGL correct
+// 8. Earlier submission
+function tiebreakerSort(a, b, results) {
+  if (!results) return new Date(a.createdAt||0) - new Date(b.createdAt||0);
+
+  // 1. Total score
+  if (b.score !== a.score) return b.score - a.score;
+
+  // 2. Champion correct
+  const aChampCorrect = a.champion && results.champion && a.champion===results.champion ? 1 : 0;
+  const bChampCorrect = b.champion && results.champion && b.champion===results.champion ? 1 : 0;
+  if (bChampCorrect !== aChampCorrect) return bChampCorrect - aChampCorrect;
+
+  // 3. Finals MVP (1st choice=2, 2nd choice=1, 3rd choice=0)
+  const mvpRank = (picks, result) => {
+    if (!picks||!result) return -1;
+    if (picks[0]===result) return 2;
+    if (picks[1]===result) return 1;
+    if (picks[2]===result) return 0;
+    return -1;
+  };
+  const aFmvp = mvpRank(a.finalsMvp, results.finalsMvp);
+  const bFmvp = mvpRank(b.finalsMvp, results.finalsMvp);
+  if (bFmvp !== aFmvp) return bFmvp - aFmvp;
+
+  // 4. Event MVP
+  const aEmvp = mvpRank(a.eventMvp, results.eventMvp);
+  const bEmvp = mvpRank(b.eventMvp, results.eventMvp);
+  if (bEmvp !== aEmvp) return bEmvp - aEmvp;
+
+  // 5. More correct teams in top5
+  const countCorrect = (top5) => results.top5 ? (top5||[]).filter(t=>results.top5.includes(t)).length : 0;
+  const aCorrect = countCorrect(a.top5), bCorrect = countCorrect(b.top5);
+  if (bCorrect !== aCorrect) return bCorrect - aCorrect;
+
+  // 6. Top5 rank order — cascade through positions
+  if (results.top5) {
+    for (let i=0; i<results.top5.length; i++) {
+      const correctTeam = results.top5[i];
+      if (!correctTeam) continue;
+      const aHas = (a.top5||[])[i]===correctTeam ? 1 : 0;
+      const bHas = (b.top5||[])[i]===correctTeam ? 1 : 0;
+      if (bHas !== aHas) return bHas - aHas;
+    }
+  }
+
+  // 7. Best IGL correct
+  const aIgl = a.bestIgl && results.bestIgl && a.bestIgl===results.bestIgl ? 1 : 0;
+  const bIgl = b.bestIgl && results.bestIgl && b.bestIgl===results.bestIgl ? 1 : 0;
+  if (bIgl !== aIgl) return bIgl - aIgl;
+
+  // 8. Earlier submission wins
+  return new Date(a.createdAt||a.timestamp||0) - new Date(b.createdAt||b.timestamp||0);
+}
+
+// ── Meta caching (20 min TTL) ─────────────────────────────────────
+function getCachedMeta() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(LS_META)||"null");
+    if (!cached) return null;
+    if (Date.now() - cached.fetchedAt > META_TTL) return null;
+    return cached.data;
+  } catch { return null; }
+}
+function setCachedMeta(data) {
+  try { localStorage.setItem(LS_META, JSON.stringify({ data, fetchedAt: Date.now() })); } catch {}
+}
+function invalidateMetaCache() {
+  try { localStorage.removeItem(LS_META); } catch {}
+}
+
+// ── My submission caching ─────────────────────────────────────────
+function getCachedSub(username) {
+  try {
+    const cached = JSON.parse(localStorage.getItem(LS_MY_SUB)||"null");
+    if (cached && cached.username === username) return cached;
+    return null;
+  } catch { return null; }
+}
+function setCachedSub(sub) {
+  try { localStorage.setItem(LS_MY_SUB, JSON.stringify(sub)); } catch {}
+}
+
+// ── LB cache helpers ──────────────────────────────────────────────
+function getCachedLbMeta(version) {
+  try {
+    const cached = JSON.parse(localStorage.getItem(LS_LB_META)||"null");
+    if (cached && cached.version === version) return cached;
+    return null;
+  } catch { return null; }
+}
+function setCachedLbMeta(data) {
+  try { localStorage.setItem(LS_LB_META, JSON.stringify(data)); } catch {}
+}
+function getCachedLbPage(version, page) {
+  try {
+    const cached = JSON.parse(localStorage.getItem(LS_LB_PAGE+page)||"null");
+    if (cached && cached.version === version) return cached.entries;
+    return null;
+  } catch { return null; }
+}
+function setCachedLbPage(version, page, entries) {
+  try { localStorage.setItem(LS_LB_PAGE+page, JSON.stringify({ version, entries })); } catch {}
+}
+function invalidateLbCache() {
+  try {
+    localStorage.removeItem(LS_LB_META);
+    for (let i=0; i<100; i++) localStorage.removeItem(LS_LB_PAGE+i);
+  } catch {}
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
 async function hashPin(pin) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
@@ -106,215 +233,238 @@ function timeLeft() {
   return m+"m left";
 }
 const isClosed = () => new Date() > DEADLINE;
+
+// ── CSS ───────────────────────────────────────────────────────────
 const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Rajdhani:wght@600;700&display=swap');
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html { scroll-behavior: smooth; }
-  body { background: #f0f4ff; font-family: 'Inter', sans-serif; color: #0f172a; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
-  .app { min-height: 100vh; padding-bottom: 80px; }
-  .container { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@600;700&display=swap');
+  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+  html { scroll-behavior:smooth; }
+  body { background:#f0f4ff; font-family:'Inter',sans-serif; color:#0f172a; -webkit-font-smoothing:antialiased; overflow-x:hidden; }
+  .app { min-height:100vh; padding-bottom:80px; }
+  .wrap { max-width:960px; margin:0 auto; padding:0 16px; }
 
-  .hero { background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #1a56db 100%); padding: 32px 16px 28px; text-align: center; position: relative; overflow: hidden; }
-  .hero::after { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 120%, rgba(26,86,219,0.3), transparent 70%); pointer-events: none; }
-  .hero-logo { height: 72px; object-fit: contain; margin-bottom: 12px; position: relative; z-index: 1; }
-  .hero-title { font-family: 'Rajdhani', sans-serif; font-size: clamp(28px,6vw,52px); font-weight: 700; color: #fff; letter-spacing: 0.02em; line-height: 1; position: relative; z-index: 1; margin-bottom: 4px; }
-  .hero-title span { color: #60a5fa; }
-  .hero-sub { font-size: 13px; color: rgba(255,255,255,0.6); position: relative; z-index: 1; margin-bottom: 14px; }
-  .hero-badges { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; position: relative; z-index: 1; align-items: center; }
-  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-  .badge-blue { background: rgba(96,165,250,0.15); border: 1px solid rgba(96,165,250,0.35); color: #93c5fd; }
-  .badge-green { background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.3); color: #86efac; }
-  .badge-red { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; }
-  .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-  .badge-dot.pulse { animation: pulse 1.5s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .hero { background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 50%,#1a56db 100%); padding:28px 16px 24px; text-align:center; position:relative; overflow:hidden; }
+  .hero::after { content:''; position:absolute; inset:0; background:radial-gradient(ellipse at 50% 120%,rgba(26,86,219,.25),transparent 70%); pointer-events:none; }
+  .hero-logo { height:64px; object-fit:contain; margin-bottom:10px; position:relative; z-index:1; }
+  .hero-title { font-family:'Rajdhani',sans-serif; font-size:clamp(26px,5.5vw,50px); font-weight:700; color:#fff; line-height:1; position:relative; z-index:1; margin-bottom:4px; }
+  .hero-title span { color:#60a5fa; }
+  .hero-sub { font-size:12px; color:rgba(255,255,255,.6); position:relative; z-index:1; margin-bottom:12px; }
+  .hero-badges { display:flex; justify-content:center; align-items:center; gap:7px; flex-wrap:wrap; position:relative; z-index:1; }
+  .badge { display:inline-flex; align-items:center; gap:5px; padding:4px 11px; border-radius:20px; font-size:11px; font-weight:600; }
+  .badge-green { background:rgba(34,197,94,.12); border:1px solid rgba(34,197,94,.3); color:#86efac; }
+  .badge-red { background:rgba(239,68,68,.12); border:1px solid rgba(239,68,68,.3); color:#fca5a5; }
+  .badge-blue { background:rgba(96,165,250,.15); border:1px solid rgba(96,165,250,.35); color:#93c5fd; }
+  .badge-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .badge-dot.pulse { animation:pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .tour-link { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:600; color:#fff; text-decoration:none; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.25); border-radius:20px; padding:4px 11px; transition:all .15s; }
+  .tour-link:hover { background:rgba(255,255,255,.2); }
 
-  /* FIX: Tournament link visible on dark hero */
-  .tournament-link { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: #fff; text-decoration: none; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25); border-radius: 20px; padding: 5px 12px; transition: all 0.15s; }
-  .tournament-link:hover { background: rgba(255,255,255,0.2); color: #fff; }
+  .score-strip { background:#fff; border-bottom:1px solid #e2e8f0; padding:7px 16px; display:flex; gap:14px; overflow-x:auto; font-size:11px; font-weight:600; color:#475569; scrollbar-width:none; }
+  .score-strip::-webkit-scrollbar { display:none; }
+  .si { display:flex; align-items:center; gap:4px; white-space:nowrap; }
+  .sd { width:7px; height:7px; border-radius:50%; display:inline-block; }
 
-  .nav { background: #fff; border-bottom: 2px solid #e2e8f0; display: flex; overflow-x: auto; position: sticky; top: 0; z-index: 50; box-shadow: 0 2px 8px rgba(15,23,42,0.06); scrollbar-width: none; }
-  .nav::-webkit-scrollbar { display: none; }
-  .nav-btn { flex-shrink: 0; padding: 14px 20px; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; color: #64748b; background: none; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
-  .nav-btn:hover { color: #0f172a; }
-  .nav-btn.active { color: #1a56db; border-bottom-color: #1a56db; }
+  .nav { background:#fff; border-bottom:2px solid #e2e8f0; display:flex; overflow-x:auto; position:sticky; top:0; z-index:50; box-shadow:0 2px 8px rgba(15,23,42,.06); scrollbar-width:none; }
+  .nav::-webkit-scrollbar { display:none; }
+  .nb { flex-shrink:0; padding:13px 18px; font-family:'Inter',sans-serif; font-size:13px; font-weight:600; color:#64748b; background:none; border:none; border-bottom:3px solid transparent; margin-bottom:-2px; cursor:pointer; white-space:nowrap; transition:all .15s; }
+  .nb:hover { color:#0f172a; }
+  .nb.active { color:#1a56db; border-bottom-color:#1a56db; }
 
-  .card { background: #fff; border: 1.5px solid #e2e8f0; border-radius: 14px; padding: 20px; margin-bottom: 16px; }
-  .card-title { font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 700; color: #0f172a; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px; }
-  .section-label { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #94a3b8; margin-bottom: 10px; }
+  .card { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:18px; margin-bottom:14px; }
+  .card-title { font-family:'Rajdhani',sans-serif; font-size:17px; font-weight:700; color:#0f172a; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #f1f5f9; display:flex; align-items:center; gap:8px; }
+  .sec-label { font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:#94a3b8; margin-bottom:9px; }
 
-  .auth-card { background: #fff; border: 1.5px solid #e2e8f0; border-radius: 14px; padding: 24px; margin-bottom: 16px; }
-  .auth-title { font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 6px; }
-  .auth-sub { font-size: 13px; color: #64748b; margin-bottom: 18px; line-height: 1.6; }
+  .auth-card { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:22px; margin-bottom:14px; }
+  .auth-title { font-size:15px; font-weight:700; color:#0f172a; margin-bottom:5px; }
+  .auth-sub { font-size:13px; color:#64748b; margin-bottom:16px; line-height:1.6; }
 
-  .input { width: 100%; background: #f8faff; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 11px 14px; font-size: 14px; font-family: 'Inter', sans-serif; color: #0f172a; outline: none; transition: border-color 0.15s, box-shadow 0.15s; }
-  .input:focus { border-color: #1a56db; box-shadow: 0 0 0 3px rgba(26,86,219,0.08); }
-  .input::placeholder { color: #94a3b8; }
-  .input.err { border-color: #ef4444; }
-  .pin-input { text-align: center; font-size: 28px; font-weight: 800; letter-spacing: 0.25em; font-family: 'Rajdhani', sans-serif; padding: 14px; }
+  .input { width:100%; background:#f8faff; border:1.5px solid #e2e8f0; border-radius:10px; padding:11px 13px; font-size:14px; font-family:'Inter',sans-serif; color:#0f172a; outline:none; transition:border-color .15s,box-shadow .15s; }
+  .input:focus { border-color:#1a56db; box-shadow:0 0 0 3px rgba(26,86,219,.08); }
+  .input::placeholder { color:#94a3b8; }
+  .input.err { border-color:#ef4444; }
+  .pin-input { text-align:center; font-size:26px; font-weight:800; letter-spacing:.22em; font-family:'Rajdhani',sans-serif; }
 
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; border-radius: 8px; padding: 9px 16px; cursor: pointer; transition: all 0.15s; border: 1.5px solid; white-space: nowrap; }
-  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-  .btn-primary { background: #1a56db; border-color: #1a56db; color: #fff; box-shadow: 0 4px 12px rgba(26,86,219,0.25); }
-  .btn-primary:hover:not(:disabled) { background: #1648c0; transform: translateY(-1px); }
-  .btn-outline { background: transparent; border-color: #cbd5e1; color: #475569; }
-  .btn-outline:hover:not(:disabled) { border-color: #1a56db; color: #1a56db; background: rgba(26,86,219,0.04); }
-  .btn-green { background: rgba(22,163,74,0.08); border-color: rgba(22,163,74,0.3); color: #15803d; }
-  .btn-green:hover:not(:disabled) { background: rgba(22,163,74,0.14); }
-  .btn-red { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.3); color: #dc2626; }
-  .btn-red:hover:not(:disabled) { background: rgba(239,68,68,0.14); }
-  .btn-purple { background: rgba(139,92,246,0.08); border-color: rgba(139,92,246,0.3); color: #7c3aed; }
-  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
-  .btn-full { width: 100%; font-size: 15px; padding: 13px 20px; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; font-family:'Inter',sans-serif; font-size:13px; font-weight:600; border-radius:8px; padding:9px 15px; cursor:pointer; transition:all .15s; border:1.5px solid; white-space:nowrap; }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .btn-primary { background:#1a56db; border-color:#1a56db; color:#fff; box-shadow:0 4px 12px rgba(26,86,219,.25); }
+  .btn-primary:hover:not(:disabled) { background:#1648c0; transform:translateY(-1px); }
+  .btn-outline { background:transparent; border-color:#cbd5e1; color:#475569; }
+  .btn-outline:hover:not(:disabled) { border-color:#1a56db; color:#1a56db; background:rgba(26,86,219,.04); }
+  .btn-green { background:rgba(22,163,74,.08); border-color:rgba(22,163,74,.3); color:#15803d; }
+  .btn-green:hover:not(:disabled) { background:rgba(22,163,74,.14); }
+  .btn-red { background:rgba(239,68,68,.08); border-color:rgba(239,68,68,.3); color:#dc2626; }
+  .btn-purple { background:rgba(139,92,246,.08); border-color:rgba(139,92,246,.3); color:#7c3aed; }
+  .btn-row { display:flex; gap:8px; flex-wrap:wrap; }
+  .btn-full { width:100%; font-size:15px; padding:13px 20px; }
 
-  .user-bar { display: flex; align-items: center; gap: 10px; background: rgba(22,163,74,0.06); border: 1px solid rgba(22,163,74,0.2); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; flex-wrap: wrap; }
-  .user-bar-name { font-size: 16px; font-weight: 700; flex: 1; }
+  .user-bar { display:flex; align-items:center; gap:10px; background:rgba(22,163,74,.06); border:1px solid rgba(22,163,74,.2); border-radius:10px; padding:10px 14px; margin-bottom:14px; flex-wrap:wrap; }
+  .user-bar-name { font-size:15px; font-weight:700; flex:1; }
 
-  /* Team grid */
-  .teams-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; margin-bottom: 16px; }
-  @media(max-width:420px) { .teams-grid { grid-template-columns: repeat(3,1fr); } }
-  .team-card { background: #fff; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 10px 6px 8px; display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; transition: all 0.15s; font-family: 'Inter', sans-serif; position: relative; min-height: 80px; }
-  .team-card:hover:not(:disabled):not(.selected) { border-color: #1a56db; background: rgba(26,86,219,0.04); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(26,86,219,0.1); }
-  .team-card.selected { border-color: #1a56db; background: rgba(26,86,219,0.06); }
-  .team-card.champion-pick { border-color: #f59e0b; background: rgba(245,158,11,0.07); box-shadow: 0 0 0 2px rgba(245,158,11,0.2); }
-  .team-card:disabled { opacity: 0.4; cursor: not-allowed; }
+  .steps { display:flex; margin-bottom:18px; border-radius:10px; overflow:hidden; border:1px solid #e2e8f0; }
+  .step { flex:1; padding:10px 6px; text-align:center; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:#94a3b8; background:#fff; border-right:1px solid #e2e8f0; }
+  .step:last-child { border-right:none; }
+  .step.active { color:#1a56db; background:rgba(26,86,219,.05); }
+  .step.done { color:#16a34a; background:rgba(22,163,74,.05); }
+  .sn { display:inline-flex; width:15px; height:15px; border-radius:50%; background:#e2e8f0; align-items:center; justify-content:center; font-size:9px; margin-right:3px; vertical-align:middle; }
+  .step.active .sn { background:#1a56db; color:#fff; }
+  .step.done .sn { background:#16a34a; color:#fff; }
 
-  /* FIX: logo background — show on white card */
-  .team-logo { width: 42px; height: 42px; object-fit: contain; border-radius: 6px; background: #0f172a; padding: 3px; }
-  .player-logo { width: 30px; height: 30px; object-fit: contain; border-radius: 4px; background: #0f172a; padding: 2px; }
+  .teams-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:8px; margin-bottom:14px; }
+  @media(max-width:400px) { .teams-grid { grid-template-columns:repeat(3,1fr); } }
+  .team-card { background:#fff; border:1.5px solid #e2e8f0; border-radius:10px; padding:10px 6px 8px; display:flex; flex-direction:column; align-items:center; gap:5px; cursor:pointer; transition:all .15s; font-family:'Inter',sans-serif; position:relative; min-height:76px; text-align:center; }
+  .team-card:hover:not(:disabled):not(.selected) { border-color:#1a56db; background:rgba(26,86,219,.04); transform:translateY(-2px); box-shadow:0 4px 12px rgba(26,86,219,.1); }
+  .team-card.selected { border-color:#1a56db; background:rgba(26,86,219,.06); }
+  .team-card.champ-pick { border-color:#f59e0b; background:rgba(245,158,11,.07); box-shadow:0 0 0 2px rgba(245,158,11,.2); }
+  .team-card:disabled { opacity:.4; cursor:not-allowed; }
+  .team-logo { width:40px; height:40px; object-fit:contain; border-radius:6px; background:#0f172a; padding:3px; }
+  .team-name { font-size:10px; font-weight:600; color:#0f172a; line-height:1.2; }
+  .tbadge { position:absolute; top:3px; left:3px; font-size:10px; font-weight:700; background:#1a56db; color:#fff; border-radius:4px; padding:1px 4px; line-height:1.4; }
+  .tbadge.gold { background:#f59e0b; }
 
-  .team-name { font-size: 10px; font-weight: 600; text-align: center; line-height: 1.2; color: #0f172a; }
-  .team-badge { position: absolute; top: 3px; left: 3px; font-size: 10px; font-weight: 700; background: #1a56db; color: #fff; border-radius: 4px; padding: 1px 4px; line-height: 1.4; }
-  .team-badge.gold { background: #f59e0b; }
+  .slots-list { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+  .drag-slot { display:flex; align-items:center; gap:9px; background:#f8faff; border:1.5px solid #1a56db; border-radius:10px; padding:8px 11px; cursor:grab; user-select:none; transition:all .15s; }
+  .drag-slot:active { cursor:grabbing; }
+  .drag-slot.is-champ { border-color:#f59e0b; background:rgba(245,158,11,.06); }
+  .drag-slot.drag-over { transform:scale(1.01); box-shadow:0 4px 12px rgba(26,86,219,.15); }
+  .drag-handle { color:#cbd5e1; font-size:15px; flex-shrink:0; }
+  .drag-num { font-family:'Rajdhani',sans-serif; font-size:17px; font-weight:700; color:#1a56db; min-width:20px; text-align:center; flex-shrink:0; }
+  .drag-slot.is-champ .drag-num { color:#f59e0b; }
+  .drag-logo { width:26px; height:26px; object-fit:contain; border-radius:4px; background:#0f172a; padding:2px; flex-shrink:0; }
+  .drag-name { font-size:13px; font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .drag-actions { display:flex; align-items:center; gap:5px; flex-shrink:0; }
+  .champ-btn { font-size:10px; font-weight:600; padding:2px 7px; border-radius:6px; cursor:pointer; border:1.5px solid #cbd5e1; background:transparent; color:#64748b; font-family:'Inter',sans-serif; transition:all .15s; white-space:nowrap; }
+  .champ-btn.on { background:rgba(245,158,11,.12); border-color:#f59e0b; color:#92400e; }
+  .rm-btn { width:19px; height:19px; border-radius:50%; background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.2); color:#dc2626; font-size:9px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
 
-  /* Player grid */
-  .players-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 6px; margin-bottom: 12px; max-height: 300px; overflow-y: auto; padding-right: 2px; }
-  .player-card { background: #f8faff; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 8px 5px; display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; transition: all 0.15s; font-family: 'Inter', sans-serif; position: relative; }
-  .player-card:hover:not(:disabled):not(.selected) { border-color: #1a56db; background: rgba(26,86,219,0.06); }
-  .player-card.selected { border-color: #1a56db; background: rgba(26,86,219,0.08); }
-  .player-card.first-pick { border-color: #f59e0b; background: rgba(245,158,11,0.08); }
-  .player-name { font-size: 10px; font-weight: 600; text-align: center; line-height: 1.2; }
-  .player-team-name { font-size: 9px; color: #94a3b8; text-align: center; }
+  .banner { border-radius:10px; padding:9px 13px; margin-bottom:12px; font-size:12px; font-weight:600; line-height:1.5; }
+  .banner.amber { background:rgba(245,158,11,.08); border:1px solid rgba(245,158,11,.25); color:#92400e; }
+  .banner.blue { background:rgba(26,86,219,.06); border:1px solid rgba(26,86,219,.2); color:#1e40af; }
+  .banner.green { background:rgba(22,163,74,.06); border:1px solid rgba(22,163,74,.2); color:#14532d; }
 
-  /* Drag-and-drop Top 5 slots */
-  .slots-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-  .drag-slot { display: flex; align-items: center; gap: 10px; background: #f8faff; border: 1.5px solid #1a56db; border-radius: 10px; padding: 8px 12px; cursor: grab; user-select: none; transition: all 0.15s; }
-  .drag-slot:active { cursor: grabbing; }
-  .drag-slot.champion { border-color: #f59e0b; background: rgba(245,158,11,0.06); }
-  .drag-slot.dragging { opacity: 0.4; }
-  .drag-slot.drag-over { border-color: #1a56db; background: rgba(26,86,219,0.08); transform: scale(1.01); }
-  .drag-handle { color: #94a3b8; font-size: 16px; cursor: grab; flex-shrink: 0; }
-  .drag-num { font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 700; color: #1a56db; min-width: 22px; text-align: center; }
-  .drag-slot.champion .drag-num { color: #f59e0b; }
-  .drag-logo { width: 28px; height: 28px; object-fit: contain; border-radius: 4px; background: #0f172a; padding: 2px; flex-shrink: 0; }
-  .drag-name { font-size: 13px; font-weight: 600; flex: 1; }
-  .drag-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
-  .champ-btn { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; cursor: pointer; border: 1.5px solid #cbd5e1; background: transparent; color: #64748b; font-family: 'Inter', sans-serif; transition: all 0.15s; white-space: nowrap; }
-  .champ-btn.active { background: rgba(245,158,11,0.12); border-color: #f59e0b; color: #92400e; }
-  .rm-btn { width: 20px; height: 20px; border-radius: 50%; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); color: #dc2626; font-size: 10px; font-weight: 900; display: flex; align-items: center; justify-content: center; cursor: pointer; }
-  .rm-btn:hover { background: rgba(239,68,68,0.2); }
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#16a34a; color:#fff; font-weight:700; font-size:13px; padding:11px 20px; border-radius:10px; z-index:999; white-space:nowrap; box-shadow:0 4px 20px rgba(0,0,0,.15); animation:tin .25s ease; }
+  .toast.err { background:#dc2626; }
+  @keyframes tin { from{opacity:0;transform:translateX(-50%) translateY(8px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
 
-  .score-strip { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 8px 16px; display: flex; gap: 16px; overflow-x: auto; font-size: 11px; font-weight: 600; color: #475569; scrollbar-width: none; }
-  .score-strip::-webkit-scrollbar { display: none; }
-  .score-item { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
-  .score-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-
-  .steps { display: flex; margin-bottom: 20px; border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0; }
-  .step { flex: 1; padding: 10px 6px; text-align: center; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #94a3b8; background: #fff; border-right: 1px solid #e2e8f0; transition: all 0.2s; }
-  .step:last-child { border-right: none; }
-  .step.active { color: #1a56db; background: rgba(26,86,219,0.05); }
-  .step.done { color: #16a34a; background: rgba(22,163,74,0.05); }
-  .step-n { display: inline-flex; width: 16px; height: 16px; border-radius: 50%; background: #e2e8f0; align-items: center; justify-content: center; font-size: 9px; margin-right: 3px; vertical-align: middle; }
-  .step.active .step-n { background: #1a56db; color: #fff; }
-  .step.done .step-n { background: #16a34a; color: #fff; }
-
-  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #16a34a; color: #fff; font-weight: 700; font-size: 14px; padding: 12px 22px; border-radius: 10px; z-index: 999; white-space: nowrap; box-shadow: 0 4px 20px rgba(0,0,0,0.15); animation: toast-in 0.25s ease; }
-  .toast.err { background: #dc2626; }
-  @keyframes toast-in { from{opacity:0;transform:translateX(-50%) translateY(8px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
-
-  .loading { text-align: center; padding: 48px 20px; color: #94a3b8; }
-  .spinner { width: 30px; height: 30px; border: 3px solid #e2e8f0; border-top-color: #1a56db; border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 12px; }
+  .loading { text-align:center; padding:48px 20px; color:#94a3b8; }
+  .spinner { width:28px; height:28px; border:3px solid #e2e8f0; border-top-color:#1a56db; border-radius:50%; animation:spin .7s linear infinite; margin:0 auto 12px; }
   @keyframes spin { to{transform:rotate(360deg)} }
 
-  .success-card { text-align: center; padding: 40px 20px; background: #fff; border-radius: 14px; border: 1.5px solid #e2e8f0; margin-bottom: 16px; }
-  .success-icon { font-size: 52px; margin-bottom: 12px; }
-  .success-title { font-family: 'Rajdhani', sans-serif; font-size: 26px; font-weight: 700; color: #16a34a; margin-bottom: 8px; }
+  .locked { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:40px 20px; text-align:center; margin-bottom:14px; }
+  .locked-icon { font-size:36px; margin-bottom:10px; }
+  .locked-title { font-family:'Rajdhani',sans-serif; font-size:19px; font-weight:700; color:#0f172a; margin-bottom:5px; }
+  .locked-sub { font-size:13px; color:#64748b; line-height:1.6; }
 
-  .locked { background: #fff; border: 1.5px solid #e2e8f0; border-radius: 14px; padding: 40px 20px; text-align: center; margin-bottom: 16px; }
-  .locked-icon { font-size: 38px; margin-bottom: 10px; }
-  .locked-title { font-family: 'Rajdhani', sans-serif; font-size: 20px; font-weight: 700; color: #0f172a; margin-bottom: 6px; }
-  .locked-sub { font-size: 13px; color: #64748b; line-height: 1.6; }
+  .chips { display:flex; flex-wrap:wrap; gap:4px; }
+  .chip { font-size:10px; font-weight:600; padding:2px 7px; border-radius:4px; background:#f1f5f9; border:1px solid #e2e8f0; color:#475569; }
+  .chip.correct { background:rgba(22,163,74,.1); border-color:rgba(22,163,74,.3); color:#16a34a; }
+  .chip.champion { background:rgba(245,158,11,.1); border-color:rgba(245,158,11,.3); color:#92400e; }
 
-  .banner { border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; font-weight: 600; line-height: 1.5; }
-  .banner.amber { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); color: #92400e; }
-  .banner.blue { background: rgba(26,86,219,0.06); border: 1px solid rgba(26,86,219,0.2); color: #1e40af; }
-  .banner.green { background: rgba(22,163,74,0.06); border: 1px solid rgba(22,163,74,0.2); color: #14532d; }
+  /* Leaderboard search + pagination */
+  .lb-search { width:100%; background:#fff; border:1.5px solid #e2e8f0; border-radius:10px; padding:10px 14px 10px 38px; font-size:13px; font-family:'Inter',sans-serif; color:#0f172a; outline:none; transition:border-color .15s; margin-bottom:12px; }
+  .lb-search:focus { border-color:#1a56db; box-shadow:0 0 0 3px rgba(26,86,219,.08); }
+  .lb-search-wrap { position:relative; margin-bottom:12px; }
+  .lb-search-icon { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:#94a3b8; font-size:14px; pointer-events:none; }
+  .lb-search { margin-bottom:0; }
 
-  .sub-card { background: #fff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 16px 18px; margin-bottom: 12px; }
-  .sub-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-  .status-chip { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.04em; }
-  .status-published { background: rgba(22,163,74,0.1); color: #16a34a; }
-  .status-pending { background: rgba(245,158,11,0.1); color: #92400e; }
-  .status-open { background: rgba(26,86,219,0.08); color: #1e40af; }
+  .pagination { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; flex-wrap:wrap; }
+  .page-btn { display:inline-flex; align-items:center; justify-content:center; min-width:36px; height:36px; padding:0 10px; border-radius:8px; border:1.5px solid #e2e8f0; background:#fff; font-size:13px; font-weight:600; color:#475569; cursor:pointer; transition:all .15s; font-family:'Inter',sans-serif; }
+  .page-btn:hover:not(:disabled) { border-color:#1a56db; color:#1a56db; background:rgba(26,86,219,.04); }
+  .page-btn.active { background:#1a56db; border-color:#1a56db; color:#fff; }
+  .page-btn:disabled { opacity:.4; cursor:not-allowed; }
+  .page-info { font-size:12px; font-weight:600; color:#64748b; padding:0 4px; }
 
-  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  .chip { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: #f1f5f9; border: 1px solid #e2e8f0; color: #475569; }
-  .chip.correct { background: rgba(22,163,74,0.1); border-color: rgba(22,163,74,0.3); color: #16a34a; }
-  .chip.champion { background: rgba(245,158,11,0.1); border-color: rgba(245,158,11,0.3); color: #92400e; }
+  .lb-tabs { display:flex; border:1.5px solid #e2e8f0; border-radius:10px; overflow:hidden; margin-bottom:14px; width:fit-content; }
+  .lb-tab { padding:8px 16px; font-size:12px; font-weight:600; background:none; border:none; cursor:pointer; font-family:'Inter',sans-serif; color:#64748b; transition:all .15s; border-right:1px solid #e2e8f0; }
+  .lb-tab:last-child { border-right:none; }
+  .lb-tab.active { background:#0f172a; color:#fff; }
 
-  .lb-tabs { display: flex; gap: 0; border: 1.5px solid #e2e8f0; border-radius: 10px; overflow: hidden; margin-bottom: 16px; width: fit-content; }
-  .lb-tab { padding: 9px 18px; font-size: 13px; font-weight: 600; background: none; border: none; cursor: pointer; font-family: 'Inter', sans-serif; color: #64748b; transition: all 0.15s; border-right: 1px solid #e2e8f0; }
-  .lb-tab:last-child { border-right: none; }
-  .lb-tab.active { background: #0f172a; color: #fff; }
+  .tbl { width:100%; border-collapse:separate; border-spacing:0; background:#fff; border:1.5px solid #e2e8f0; border-radius:12px; overflow:hidden; font-size:12px; }
+  .tbl th { background:#f8faff; color:#94a3b8; font-size:9px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:9px 11px; border-bottom:1.5px solid #e2e8f0; text-align:left; }
+  .tbl td { padding:9px 11px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
+  .tbl tr:last-child td { border-bottom:none; }
+  .tbl tr:hover td { background:rgba(26,86,219,.02); }
+  .rank-c { font-family:'Rajdhani',sans-serif; font-size:20px; font-weight:700; color:#94a3b8; text-align:center; width:38px; }
+  .score-pill { font-family:'Rajdhani',sans-serif; font-size:15px; font-weight:700; color:#1a56db; }
+  .fantasy-score { font-family:'Rajdhani',sans-serif; font-size:14px; font-weight:700; color:#7c3aed; }
 
-  .table { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; border: 1.5px solid #e2e8f0; border-radius: 12px; overflow: hidden; font-size: 13px; }
-  .table th { background: #f8faff; color: #94a3b8; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 10px 12px; border-bottom: 1.5px solid #e2e8f0; text-align: left; }
-  .table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
-  .table tr:last-child td { border-bottom: none; }
-  .table tr:hover td { background: rgba(26,86,219,0.02); }
-  .rank-cell { font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700; color: #94a3b8; text-align: center; width: 40px; }
-  .score-pill { font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700; color: #1a56db; }
-  .fantasy-score { font-family: 'Rajdhani', sans-serif; font-size: 15px; font-weight: 700; color: #7c3aed; }
-  .user-cell { display: flex; align-items: center; gap: 6px; }
-
-  .admin-box { background: #fff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
-  .admin-title { font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #f1f5f9; }
-  .admin-label { font-size: 11px; font-weight: 700; color: #94a3b8; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
-  .admin-select { background: #f8faff; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; color: #0f172a; font-size: 13px; font-family: 'Inter', sans-serif; outline: none; width: 100%; }
-  .admin-select:focus { border-color: #1a56db; }
-  .admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: 10px; margin-bottom: 14px; }
-  .del-btn { background: none; border: 1px solid #e2e8f0; border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 600; color: #94a3b8; cursor: pointer; transition: all 0.15s; font-family: 'Inter', sans-serif; }
-  .del-btn:hover { border-color: #ef4444; color: #dc2626; background: rgba(239,68,68,0.06); }
-
-  .fantasy-input-wrap { display: flex; flex-direction: column; gap: 3px; }
-  .fantasy-input { background: #f8faff; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 7px 10px; font-size: 13px; font-family: 'Inter', sans-serif; color: #0f172a; outline: none; width: 100%; }
-  .fantasy-input:focus { border-color: #1a56db; }
-  .fantasy-label { font-size: 11px; font-weight: 600; color: #64748b; }
-  .info-row { display: flex; gap: 12px; align-items: center; font-size: 12px; color: #64748b; flex-wrap: wrap; }
-  .info-row strong { color: #0f172a; }
-  .err-text { font-size: 12px; color: #dc2626; font-weight: 600; margin-top: 6px; }
+  .admin-box { background:#fff; border:1.5px solid #e2e8f0; border-radius:12px; padding:18px; margin-bottom:14px; }
+  .admin-title { font-family:'Rajdhani',sans-serif; font-size:15px; font-weight:700; color:#0f172a; margin-bottom:11px; padding-bottom:9px; border-bottom:1px solid #f1f5f9; }
+  .alabel { font-size:10px; font-weight:700; color:#94a3b8; margin-bottom:4px; text-transform:uppercase; letter-spacing:.05em; }
+  .aselect { background:#f8faff; border:1.5px solid #e2e8f0; border-radius:8px; padding:7px 9px; color:#0f172a; font-size:12px; font-family:'Inter',sans-serif; outline:none; width:100%; }
+  .aselect:focus { border-color:#1a56db; }
+  .agrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:9px; margin-bottom:12px; }
+  .del-btn { background:none; border:1px solid #e2e8f0; border-radius:6px; padding:3px 8px; font-size:10px; font-weight:600; color:#94a3b8; cursor:pointer; font-family:'Inter',sans-serif; }
+  .del-btn:hover { border-color:#ef4444; color:#dc2626; background:rgba(239,68,68,.06); }
+  .fi-wrap { display:flex; flex-direction:column; gap:3px; }
+  .fi { background:#f8faff; border:1.5px solid #e2e8f0; border-radius:7px; padding:6px 9px; font-size:12px; font-family:'Inter',sans-serif; color:#0f172a; outline:none; width:100%; }
+  .fi:focus { border-color:#1a56db; }
+  .fi-label { font-size:10px; font-weight:600; color:#64748b; }
+  .info-row { display:flex; gap:12px; align-items:center; font-size:12px; color:#64748b; flex-wrap:wrap; }
+  .info-row strong { color:#0f172a; }
+  .err-text { font-size:11px; color:#dc2626; font-weight:600; margin-top:5px; }
 
   @media(max-width:600px) {
-    .hero { padding: 24px 14px 20px; }
-    .hero-logo { height: 56px; }
-    .container { padding: 0 12px; }
-    .card { padding: 16px; }
-    .nav-btn { padding: 12px 14px; font-size: 12px; }
-    .drag-name { font-size: 12px; }
+    .hero { padding:20px 14px 18px; }
+    .hero-logo { height:52px; }
+    .wrap { padding:0 12px; }
+    .card { padding:14px; }
+    .nb { padding:11px 13px; font-size:12px; }
+    .drag-name { font-size:12px; }
+    .tbl { font-size:11px; }
+    .tbl th { font-size:8px; padding:7px 8px; }
+    .tbl td { padding:7px 8px; }
+    .pagination { gap:5px; }
+    .page-btn { min-width:32px; height:32px; font-size:12px; }
   }
 `;
 
+// ── Draggable Top 5 ───────────────────────────────────────────────
+function DraggableTop5({ top5, setTop5, champion, setChampion }) {
+  const dragIdx = useRef(null);
+  const [dragOver, setDragOver] = useState(null);
+  const onDragStart = (e,i) => { dragIdx.current=i; e.dataTransfer.effectAllowed="move"; };
+  const onDragOver  = (e,i) => { e.preventDefault(); setDragOver(i); };
+  const onDrop = (e,i) => {
+    e.preventDefault();
+    if (dragIdx.current===null||dragIdx.current===i) { setDragOver(null); return; }
+    const next=[...top5]; const [moved]=next.splice(dragIdx.current,1); next.splice(i,0,moved);
+    setTop5(next); dragIdx.current=null; setDragOver(null);
+  };
+  const onDragEnd = () => { dragIdx.current=null; setDragOver(null); };
+  return (
+    <div className="slots-list">
+      {top5.map((name,i) => {
+        const t=TEAMS.find(t=>t.name===name); const isChamp=champion===name;
+        return (
+          <div key={name} className={`drag-slot${isChamp?" is-champ":""}${dragOver===i?" drag-over":""}`}
+            draggable onDragStart={e=>onDragStart(e,i)} onDragOver={e=>onDragOver(e,i)}
+            onDrop={e=>onDrop(e,i)} onDragEnd={onDragEnd}>
+            <span className="drag-handle">⠿</span>
+            <span className="drag-num">#{i+1}</span>
+            <img className="drag-logo" src={LOGO(t?.logo)} alt=""/>
+            <span className="drag-name">{name}</span>
+            <div className="drag-actions">
+              <button className={`champ-btn${isChamp?" on":""}`} onClick={()=>setChampion(isChamp?null:name)}>
+                {isChamp?"★ Champ":"☆ Champ"}
+              </button>
+              <button className="rm-btn" onClick={()=>{ setTop5(p=>p.filter(t=>t!==name)); if(isChamp) setChampion(null); }}>✕</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
-// Player Accordion - grouped by team, tap to expand
+// ── Player Accordion ──────────────────────────────────────────────
 function PlayerAccordion({ picks, setPicks, max, pts1, pts2 }) {
   const [open, setOpen] = useState(null);
-
   const pickPlayer = (player) => {
     if (picks.includes(player)) { setPicks(p=>p.filter(x=>x!==player)); return; }
-    if (picks.length >= max) return;
+    if (picks.length>=max) return;
     setPicks(p=>[...p,player]);
   };
-
   return (
     <div>
       {picks.length>0&&(
@@ -329,11 +479,10 @@ function PlayerAccordion({ picks, setPicks, max, pts1, pts2 }) {
       )}
       <div className="banner blue" style={{marginBottom:10}}>
         Pick 3 players. <strong>1st choice = {pts1} pts</strong> · 2nd/3rd = {pts2} pts if correct.<br/>
-        Tap a team to expand, then tap a player name to select.
+        Tap a team to expand, then tap a player to select.
       </div>
       {TEAMS.map(t=>{
-        const teamPicks = picks.filter(p=>t.players.includes(p));
-        const isOpen = open===t.id;
+        const teamPicks=picks.filter(p=>t.players.includes(p)); const isOpen=open===t.id;
         return (
           <div key={t.id} style={{border:`1.5px solid ${teamPicks.length>0?"#1a56db":"#e2e8f0"}`,borderRadius:10,marginBottom:7,overflow:"hidden"}}>
             <div onClick={()=>setOpen(o=>o===t.id?null:t.id)}
@@ -346,13 +495,10 @@ function PlayerAccordion({ picks, setPicks, max, pts1, pts2 }) {
             {isOpen&&(
               <div style={{background:"#f8faff",borderTop:"1px solid #e2e8f0",padding:"10px 13px",display:"flex",flexWrap:"wrap",gap:6}}>
                 {t.players.map(player=>{
-                  const idx=picks.indexOf(player);
-                  const isPicked=idx>=0, isFirst=idx===0;
-                  const isDisabled=!isPicked&&picks.length>=max;
-                  const isIgl=player===t.igl;
+                  const idx=picks.indexOf(player); const isPicked=idx>=0; const isFirst=idx===0;
+                  const isDisabled=!isPicked&&picks.length>=max; const isIgl=player===t.igl;
                   return (
-                    <button key={player} onClick={()=>!isDisabled&&pickPlayer(player)}
-                      disabled={isDisabled}
+                    <button key={player} onClick={()=>!isDisabled&&pickPlayer(player)} disabled={isDisabled}
                       style={{display:"inline-flex",alignItems:"center",gap:5,padding:"7px 11px",borderRadius:8,border:`1.5px solid ${isFirst?"#f59e0b":isPicked?"#1a56db":"#e2e8f0"}`,background:isFirst?"rgba(245,158,11,.08)":isPicked?"rgba(26,86,219,.08)":"#fff",cursor:isDisabled?"not-allowed":"pointer",fontSize:12,fontWeight:600,color:isFirst?"#92400e":isPicked?"#1e40af":"#0f172a",opacity:isDisabled?.4:1,transition:"all .15s"}}>
                       {isPicked&&<span style={{fontSize:10,fontWeight:800,color:isFirst?"#f59e0b":"#1a56db"}}>{isFirst?"★":idx+1+"."}</span>}
                       {player}
@@ -369,84 +515,13 @@ function PlayerAccordion({ picks, setPicks, max, pts1, pts2 }) {
   );
 }
 
-
-// ── Drag-and-drop Top 5 list component ───────────────────────────
-function DraggableTop5({ top5, setTop5, champion, setChampion }) {
-  const dragIdx = useRef(null);
-  const [dragOver, setDragOver] = useState(null);
-
-  const onDragStart = (e, idx) => {
-    dragIdx.current = idx;
-    e.dataTransfer.effectAllowed = "move";
-  };
-  const onDragOver = (e, idx) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDragOver(idx);
-  };
-  const onDrop = (e, idx) => {
-    e.preventDefault();
-    if (dragIdx.current === null || dragIdx.current === idx) { setDragOver(null); return; }
-    const newList = [...top5];
-    const [moved] = newList.splice(dragIdx.current, 1);
-    newList.splice(idx, 0, moved);
-    setTop5(newList);
-    dragIdx.current = null;
-    setDragOver(null);
-  };
-  const onDragEnd = () => { dragIdx.current = null; setDragOver(null); };
-
-  // Touch drag support
-  const touchStart = useRef(null);
-  const onTouchStart = (e, idx) => { touchStart.current = { idx, y: e.touches[0].clientY }; };
-  const onTouchEnd = (e, idx) => {
-    if (!touchStart.current) return;
-    touchStart.current = null;
-  };
-
-  return (
-    <div className="slots-list">
-      {top5.map((teamName, idx) => {
-        const t = TEAMS.find(t => t.name === teamName);
-        const isChamp = champion === teamName;
-        return (
-          <div key={teamName}
-            className={`drag-slot${isChamp ? " champion" : ""}${dragOver === idx ? " drag-over" : ""}`}
-            draggable
-            onDragStart={e => onDragStart(e, idx)}
-            onDragOver={e => onDragOver(e, idx)}
-            onDrop={e => onDrop(e, idx)}
-            onDragEnd={onDragEnd}
-            onTouchStart={e => onTouchStart(e, idx)}
-            onTouchEnd={e => onTouchEnd(e, idx)}
-          >
-            <span className="drag-handle">⠿</span>
-            <span className="drag-num">#{idx + 1}</span>
-            <img className="drag-logo" src={IMGS[t?.logo]} alt="" />
-            <span className="drag-name">{teamName}</span>
-            <div className="drag-actions">
-              <button className={`champ-btn${isChamp ? " active" : ""}`}
-                onClick={() => setChampion(isChamp ? null : teamName)}>
-                {isChamp ? "★ Champ" : "☆ Champ"}
-              </button>
-              <button className="rm-btn" onClick={() => {
-                setTop5(prev => prev.filter(t => t !== teamName));
-                if (isChamp) setChampion(null);
-              }}>✕</button>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ── Main App ──────────────────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState("picks");
   const [toast, setToast] = useState(null);
   const [meta, setMeta] = useState(null);
 
+  // Auth
   const [identity, setIdentity] = useState(null);
   const [usernameInput, setUsernameInput] = useState("");
   const [pinFlow, setPinFlow] = useState("username");
@@ -455,6 +530,7 @@ export default function App() {
   const [pendingDocId, setPendingDocId] = useState(null);
   const [idLoading, setIdLoading] = useState(false);
 
+  // Picks
   const [top5, setTop5] = useState([]);
   const [champion, setChampion] = useState(null);
   const [finalsMvp, setFinalsMvp] = useState([]);
@@ -465,55 +541,78 @@ export default function App() {
   const [submitted, setSubmitted] = useState(false);
   const [mySubmission, setMySubmission] = useState(null);
 
+  // Leaderboard
   const [lbTab, setLbTab] = useState("prediction");
-  const [lbData, setLbData] = useState(null);
+  const [lbMetaInfo, setLbMetaInfo] = useState(null); // {totalPages, count, cacheVersion}
+  const [lbPages, setLbPages] = useState({}); // {0: [...], 1: [...]}
+  const [lbPage, setLbPage] = useState(0);
+  const [lbSearch, setLbSearch] = useState("");
+  const [lbLoading, setLbLoading] = useState(false);
   const [fantasyData, setFantasyData] = useState(null);
 
+  // Admin
   const [adminUnlocked, setAdminUnlocked] = useState(false);
   const [adminPassInput, setAdminPassInput] = useState("");
   const [adminAttempts, setAdminAttempts] = useState(0);
-  const [adminLockUntil] = useState(() => parseInt(localStorage.getItem("bgis26f_admin_lock") || "0"));
+  const [adminLockUntil] = useState(()=>parseInt(localStorage.getItem("bgis26f_admin_lock")||"0"));
   const [adminSubs, setAdminSubs] = useState([]);
   const [adminFetching, setAdminFetching] = useState(false);
-  const [results, setResults] = useState({ top5: [], champion: "", finalsMvp: "", eventMvp: "", bestIgl: "", mostFinishes: "" });
-  const [adminFantasy, setAdminFantasy] = useState({ teamPoints: {}, playerKills: {} });
+  const [results, setResults] = useState({top5:[],champion:"",finalsMvp:"",eventMvp:"",bestIgl:"",mostFinishes:""});
+  const [adminFantasy, setAdminFantasy] = useState({teamPoints:{},playerKills:{}});
   const [adminFantasySaving, setAdminFantasySaving] = useState(false);
   const [subCount, setSubCount] = useState(null);
 
-  const showToast = (msg, type = "success") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
-  };
+  const showToast = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3200); };
 
+  // ── Load meta (20 min TTL cache) ──
   useEffect(() => {
     const load = async () => {
+      const cached = getCachedMeta();
+      if (cached) {
+        setMeta(cached);
+        if (cached.results) setResults(cached.results);
+        if (cached.fantasy) { setAdminFantasy(cached.fantasy); setFantasyData(cached.fantasy); }
+        return;
+      }
       try {
-        const snap = await getDoc(doc(db, "pickem", META_DOC));
-        if (snap.exists()) {
-          const d = snap.data();
-          setMeta(d);
-          if (d.results) setResults(d.results);
-          if (d.fantasy) { setAdminFantasy(d.fantasy); setFantasyData(d.fantasy); }
-        } else setMeta({});
+        const snap = await getDoc(doc(db,"pickem",META_DOC));
+        const d = snap.exists() ? snap.data() : {};
+        setMeta(d);
+        setCachedMeta(d);
+        if (d.results) setResults(d.results);
+        if (d.fantasy) { setAdminFantasy(d.fantasy); setFantasyData(d.fantasy); }
       } catch { setMeta({}); }
     };
     load();
   }, []);
 
+  // ── Restore identity ──
   useEffect(() => {
-    const saved = localStorage.getItem(LS_TOKEN);
-    const savedId = localStorage.getItem(LS_DOCID);
-    if (saved && savedId) setIdentity({ username: savedId, token: saved, isReturning: true });
+    const t=localStorage.getItem(LS_TOKEN), id=localStorage.getItem(LS_DOCID);
+    if (t&&id) setIdentity({username:id,token:t,isReturning:true});
   }, []);
 
+  // ── Load my submission (localStorage first) ──
   useEffect(() => {
     if (!identity) { setMySubmission(null); return; }
+    const cached = getCachedSub(identity.username);
+    if (cached) {
+      setMySubmission(cached);
+      if (cached.top5) setTop5(cached.top5);
+      if (cached.champion) setChampion(cached.champion);
+      if (cached.finalsMvp) setFinalsMvp(cached.finalsMvp);
+      if (cached.eventMvp) setEventMvp(cached.eventMvp);
+      if (cached.bestIgl) setBestIgl(cached.bestIgl);
+      if (cached.mostFinishes) setMostFinishes(cached.mostFinishes);
+      return;
+    }
+    // Not in cache — fetch once
     const load = async () => {
       try {
-        const snap = await getDoc(doc(db, "pickem", META_DOC, SUBS_COL, identity.username));
-        if (snap.exists() && !snap.data().deleted) {
+        const snap = await getDoc(doc(db,"pickem",META_DOC,SUBS_COL,identity.username));
+        if (snap.exists()&&!snap.data().deleted) {
           const sub = snap.data();
-          setMySubmission(sub);
+          setMySubmission(sub); setCachedSub(sub);
           if (sub.top5) setTop5(sub.top5);
           if (sub.champion) setChampion(sub.champion);
           if (sub.finalsMvp) setFinalsMvp(sub.finalsMvp);
@@ -526,81 +625,97 @@ export default function App() {
     load();
   }, [identity?.username]);
 
-  useEffect(() => {
+  // ── Load leaderboard meta ──
+  const loadLbMeta = useCallback(async () => {
     if (!meta) return;
-    const loadLb = async () => {
-      const serverVersion = meta.cacheVersion || 0;
-      try {
-        const cached = JSON.parse(localStorage.getItem(LS_LB) || "null");
-        if (cached && cached.version === serverVersion && cached.submissions?.length) {
-          setLbData(cached.submissions); setSubCount(cached.submissions.length); return;
-        }
-      } catch {}
-      try {
-        const snap = await getDoc(doc(db, "pickem", LB_CACHE_DOC));
-        if (snap.exists()) {
-          const d = snap.data();
-          setLbData(d.submissions || []); setSubCount(d.count || 0);
-          localStorage.setItem(LS_LB, JSON.stringify({ version: serverVersion, submissions: d.submissions || [] }));
-        }
-      } catch {}
-    };
-    if (isClosed() || meta?.published) loadLb();
+    const version = meta.cacheVersion||0;
+    const cached = getCachedLbMeta(version);
+    if (cached) { setLbMetaInfo(cached); return; }
+    try {
+      const snap = await getDoc(doc(db,"pickem",LB_META_DOC));
+      if (snap.exists()) {
+        const d = snap.data();
+        setLbMetaInfo(d);
+        setCachedLbMeta({...d, version});
+        setSubCount(d.count||0);
+      }
+    } catch {}
   }, [meta]);
 
+  useEffect(() => {
+    if ((isClosed()||meta?.published) && meta) loadLbMeta();
+  }, [meta, loadLbMeta]);
+
+  // ── Load a leaderboard page ──
+  const loadLbPage = useCallback(async (page) => {
+    if (!meta||!lbMetaInfo) return;
+    const version = meta.cacheVersion||0;
+    const cached = getCachedLbPage(version, page);
+    if (cached) { setLbPages(p=>({...p,[page]:cached})); return; }
+    setLbLoading(true);
+    try {
+      const snap = await getDoc(doc(db,"pickem",LB_PAGE_PREFIX+page));
+      if (snap.exists()) {
+        const entries = snap.data().entries||[];
+        setLbPages(p=>({...p,[page]:entries}));
+        setCachedLbPage(version, page, entries);
+      }
+    } catch {}
+    setLbLoading(false);
+  }, [meta, lbMetaInfo]);
+
+  useEffect(() => {
+    if (lbMetaInfo && !(lbPage in lbPages)) loadLbPage(lbPage);
+  }, [lbPage, lbMetaInfo, lbPages, loadLbPage]);
+
+  // ── Auth ──
   const handleConfirm = async () => {
-    const clean = usernameInput.trim().toLowerCase().replace(/[^a-z0-9_\-.]/g, "");
-    if (!clean || clean.length < 3) { showToast("Username must be at least 3 characters", "error"); return; }
+    const clean = usernameInput.trim().toLowerCase().replace(/[^a-z0-9_\-.]/g,"");
+    if (!clean||clean.length<3) { showToast("Username must be at least 3 characters","error"); return; }
     setIdLoading(true); setPinError("");
     try {
-      const uSnap = await getDoc(doc(db, USERS_COL, clean));
+      const snap = await getDoc(doc(db,USERS_COL,clean));
       setPendingDocId(clean);
-      if (uSnap.exists()) {
-        const savedId = localStorage.getItem(LS_DOCID);
-        const savedToken = localStorage.getItem(LS_TOKEN);
-        if (savedId === clean && savedToken === uSnap.data().token) {
-          setIdentity({ username: clean, token: savedToken, isReturning: true });
-          showToast(`Welcome back, ${clean}!`);
-        } else setPinFlow("pin_verify");
+      if (snap.exists()) {
+        const si=localStorage.getItem(LS_DOCID), st=localStorage.getItem(LS_TOKEN);
+        if (si===clean&&st===snap.data().token) { setIdentity({username:clean,token:st,isReturning:true}); showToast("Welcome back, "+clean+"!"); }
+        else setPinFlow("pin_verify");
       } else setPinFlow("pin_new");
-    } catch { showToast("Something went wrong. Try again.", "error"); }
+    } catch { showToast("Something went wrong.","error"); }
     finally { setIdLoading(false); }
   };
 
   const handleSetPin = async () => {
-    if (!/^\d{6}$/.test(pinInput)) { setPinError("PIN must be exactly 6 digits"); return; }
-    const token = await hashPin(pinInput + pendingDocId);
+    if (!/^\d{6}$/.test(pinInput)) { setPinError("Must be exactly 6 digits"); return; }
+    const token = await hashPin(pinInput+pendingDocId);
     try {
-      await setDoc(doc(db, USERS_COL, pendingDocId), { token, username: pendingDocId, createdAt: new Date().toISOString() });
-      localStorage.setItem(LS_TOKEN, token); localStorage.setItem(LS_DOCID, pendingDocId);
-      setIdentity({ username: pendingDocId, token, isReturning: false });
+      await setDoc(doc(db,USERS_COL,pendingDocId),{token,username:pendingDocId,createdAt:new Date().toISOString()});
+      localStorage.setItem(LS_TOKEN,token); localStorage.setItem(LS_DOCID,pendingDocId);
+      setIdentity({username:pendingDocId,token,isReturning:false});
       setPinFlow("username"); setPinInput(""); setPinError("");
-      showToast(`Welcome, ${pendingDocId}! 🎮`);
-    } catch { showToast("Failed to save. Try again.", "error"); }
+      showToast("Welcome, "+pendingDocId+"! 🎮");
+    } catch { showToast("Failed to save.","error"); }
   };
 
   const handleVerifyPin = async () => {
-    if (!/^\d{6}$/.test(pinInput)) { setPinError("PIN must be exactly 6 digits"); return; }
-    const lockKey = `bgis26f_pin_lock_${pendingDocId}`;
-    const attKey = `bgis26f_pin_att_${pendingDocId}`;
-    const now = Date.now();
-    const lockedUntil = parseInt(localStorage.getItem(lockKey) || "0");
-    if (now < lockedUntil) { setPinError(`Locked for ${Math.ceil((lockedUntil-now)/60000)} min.`); return; }
+    if (!/^\d{6}$/.test(pinInput)) { setPinError("Must be exactly 6 digits"); return; }
+    const lk="bgis26f_pin_lock_"+pendingDocId, ak="bgis26f_pin_att_"+pendingDocId;
+    const now=Date.now(), lu=parseInt(localStorage.getItem(lk)||"0");
+    if (now<lu) { setPinError("Locked for "+Math.ceil((lu-now)/60000)+" min."); return; }
     setIdLoading(true); setPinError("");
     try {
-      const uSnap = await getDoc(doc(db, USERS_COL, pendingDocId));
-      const token = await hashPin(pinInput + pendingDocId);
-      if (uSnap.exists() && uSnap.data().token === token) {
-        localStorage.removeItem(lockKey); localStorage.removeItem(attKey);
-        localStorage.setItem(LS_TOKEN, token); localStorage.setItem(LS_DOCID, pendingDocId);
-        setIdentity({ username: pendingDocId, token, isReturning: true });
+      const snap = await getDoc(doc(db,USERS_COL,pendingDocId));
+      const token = await hashPin(pinInput+pendingDocId);
+      if (snap.exists()&&snap.data().token===token) {
+        localStorage.removeItem(lk); localStorage.removeItem(ak);
+        localStorage.setItem(LS_TOKEN,token); localStorage.setItem(LS_DOCID,pendingDocId);
+        setIdentity({username:pendingDocId,token,isReturning:true});
         setPinFlow("username"); setPinInput(""); setPinError("");
-        showToast(`Welcome back, ${pendingDocId}!`);
+        showToast("Welcome back, "+pendingDocId+"!");
       } else {
-        const att = parseInt(localStorage.getItem(attKey) || "0") + 1;
-        localStorage.setItem(attKey, String(att));
-        if (att >= 3) { localStorage.setItem(lockKey, String(now+15*60000)); setPinError("Too many attempts. Locked 15 min."); }
-        else setPinError(`Wrong PIN. ${3-att} attempt${3-att===1?"":"s"} left.`);
+        const att=parseInt(localStorage.getItem(ak)||"0")+1; localStorage.setItem(ak,String(att));
+        if (att>=3) { localStorage.setItem(lk,String(now+15*60000)); setPinError("Too many attempts. Locked 15 min."); }
+        else setPinError("Wrong PIN. "+(3-att)+" attempt"+(3-att===1?"":"s")+" left.");
       }
     } catch { setPinError("Something went wrong."); }
     finally { setIdLoading(false); }
@@ -611,203 +726,215 @@ export default function App() {
     localStorage.removeItem(LS_TOKEN); localStorage.removeItem(LS_DOCID);
   };
 
-  const canSubmit = top5.length === 5 && champion && finalsMvp.length === 3 && eventMvp.length === 3 && bestIgl && mostFinishes;
+  // ── Submit picks ──
+  const canSubmit = top5.length===5&&champion&&finalsMvp.length===3&&eventMvp.length===3&&bestIgl&&mostFinishes;
 
   const handleSubmit = async () => {
-    if (!identity || !canSubmit) return;
+    if (!identity||!canSubmit) return;
     setSubmitting(true);
     try {
-      const sub = { username: identity.username, top5, champion, finalsMvp, eventMvp, bestIgl, mostFinishes, timestamp: new Date().toISOString(), createdAt: mySubmission?.createdAt || new Date().toISOString() };
-      await setDoc(doc(db, "pickem", META_DOC, SUBS_COL, identity.username), sub);
-      setMySubmission(sub); setSubmitted(true);
+      const sub = {username:identity.username,top5,champion,finalsMvp,eventMvp,bestIgl,mostFinishes,timestamp:new Date().toISOString(),createdAt:mySubmission?.createdAt||new Date().toISOString()};
+      await setDoc(doc(db,"pickem",META_DOC,SUBS_COL,identity.username),sub);
+      setMySubmission(sub); setCachedSub(sub); setSubmitted(true);
       showToast("Picks submitted! Good luck! 🎮");
-    } catch { showToast("Failed to save. Try again.", "error"); }
+    } catch { showToast("Failed to save.","error"); }
     finally { setSubmitting(false); }
   };
 
-  const toggleTop5 = (teamName) => {
-    if (isClosed() || !identity) return;
-    if (top5.includes(teamName)) {
-      setTop5(prev => prev.filter(t => t !== teamName));
-      if (champion === teamName) setChampion(null);
-    } else {
-      if (top5.length >= 5) { showToast("You can only pick 5 teams", "error"); return; }
-      setTop5(prev => [...prev, teamName]);
-    }
+  const toggleTop5 = (name) => {
+    if (isClosed()||!identity) return;
+    if (top5.includes(name)) { setTop5(p=>p.filter(t=>t!==name)); if(champion===name) setChampion(null); }
+    else { if(top5.length>=5){showToast("Max 5 teams","error");return;} setTop5(p=>[...p,name]); }
   };
 
-  const toggleMvp = (player, arr, setArr, max) => {
-    if (arr.includes(player)) setArr(prev => prev.filter(p => p !== player));
-    else { if (arr.length >= max) { showToast(`Max ${max} picks`, "error"); return; } setArr(prev => [...prev, player]); }
-  };
-
-  // Admin
+  // ── Admin ──
   const handleAdminLogin = () => {
-    const now = Date.now();
-    if (now < adminLockUntil) { showToast(`Locked for ${Math.ceil((adminLockUntil-now)/60000)} min`, "error"); return; }
-    if (adminPassInput === ADMIN_PASS) {
-      setAdminUnlocked(true); setAdminAttempts(0);
-      localStorage.removeItem("bgis26f_admin_lock");
-      loadAdminSubs();
-    } else {
-      const next = adminAttempts + 1; setAdminAttempts(next);
-      if (next >= 5) { const lu = now+15*60000; localStorage.setItem("bgis26f_admin_lock", String(lu)); showToast("Locked 15 min", "error"); }
-      else showToast(`Wrong. ${5-next} left`, "error");
-    }
+    const now=Date.now();
+    if (now<adminLockUntil){showToast("Locked "+Math.ceil((adminLockUntil-now)/60000)+" min","error");return;}
+    if (adminPassInput===ADMIN_PASS){setAdminUnlocked(true);setAdminAttempts(0);localStorage.removeItem("bgis26f_admin_lock");loadAdminSubs();}
+    else{const n=adminAttempts+1;setAdminAttempts(n);if(n>=5){const lu=now+15*60000;localStorage.setItem("bgis26f_admin_lock",String(lu));showToast("Locked 15 min","error");}else showToast("Wrong. "+(5-n)+" left","error");}
   };
 
   const loadAdminSubs = async () => {
     setAdminFetching(true);
-    try {
-      const snap = await getDocs(collection(db, "pickem", META_DOC, SUBS_COL));
-      const subs = snap.docs.map(d => d.data()).filter(d => !d.deleted);
-      setAdminSubs(subs); setSubCount(subs.length);
-    } catch {}
+    try { const snap=await getDocs(collection(db,"pickem",META_DOC,SUBS_COL)); setAdminSubs(snap.docs.map(d=>d.data()).filter(d=>!d.deleted)); setSubCount(snap.docs.filter(d=>!d.data().deleted).length); } catch {}
     setAdminFetching(false);
   };
 
   const handleSaveResults = async () => {
     try {
-      const freshSnap = await getDoc(doc(db, "pickem", META_DOC));
-      const fresh = freshSnap.exists() ? freshSnap.data() : {};
-      await setDoc(doc(db, "pickem", META_DOC), { adminSecret: ADMIN_SECRET, ...fresh, results }, { merge: true });
-      setMeta(prev => ({ ...prev, results }));
-      showToast("Results saved!");
-    } catch { showToast("Save failed", "error"); }
+      const fs=await getDoc(doc(db,"pickem",META_DOC)); const f=fs.exists()?fs.data():{};
+      await setDoc(doc(db,"pickem",META_DOC),{adminSecret:ADMIN_SECRET,...f,results},{merge:true});
+      setMeta(p=>({...p,results})); invalidateMetaCache(); showToast("Results saved!");
+    } catch { showToast("Save failed","error"); }
   };
 
   const handlePublishToggle = async (publish) => {
     try {
-      const freshSnap = await getDoc(doc(db, "pickem", META_DOC));
-      const fresh = freshSnap.exists() ? freshSnap.data() : {};
-      await setDoc(doc(db, "pickem", META_DOC), { adminSecret: ADMIN_SECRET, ...fresh, published: publish }, { merge: true });
-      setMeta(prev => ({ ...prev, published: publish }));
+      const fs=await getDoc(doc(db,"pickem",META_DOC)); const f=fs.exists()?fs.data():{};
+      await setDoc(doc(db,"pickem",META_DOC),{adminSecret:ADMIN_SECRET,...f,published:publish},{merge:true});
+      setMeta(p=>({...p,published:publish})); invalidateMetaCache();
       if (publish) await bakeLeaderboard();
-      showToast(publish ? "Scores published!" : "Scores hidden");
-    } catch { showToast("Failed", "error"); }
+      showToast(publish?"Scores published!":"Scores hidden");
+    } catch { showToast("Failed","error"); }
   };
 
   const bakeLeaderboard = async () => {
     try {
-      const snap = await getDocs(collection(db, "pickem", META_DOC, SUBS_COL));
-      const submissions = snap.docs.map(d => d.data()).filter(d => !d.deleted);
-      await setDoc(doc(db, "pickem", LB_CACHE_DOC), { adminSecret: ADMIN_SECRET, bakedAt: new Date().toISOString(), submissions, count: submissions.length });
-      const freshSnap = await getDoc(doc(db, "pickem", META_DOC));
-      const fresh = freshSnap.exists() ? freshSnap.data() : {};
-      await setDoc(doc(db, "pickem", META_DOC), { adminSecret: ADMIN_SECRET, ...fresh, cacheVersion: (fresh.cacheVersion||0)+1 }, { merge: true });
-      localStorage.removeItem(LS_LB);
-      showToast(`Baked — ${submissions.length} submissions`);
-    } catch(e) { showToast("Bake failed", "error"); }
+      // Fetch all submissions
+      const snap = await getDocs(collection(db,"pickem",META_DOC,SUBS_COL));
+      const allSubs = snap.docs.map(d=>d.data()).filter(d=>!d.deleted);
+
+      // Fetch fresh meta for results
+      const metaSnap = await getDoc(doc(db,"pickem",META_DOC));
+      const metaData = metaSnap.exists()?metaSnap.data():{};
+      const currentResults = metaData.results||null;
+      const currentFantasy = metaData.fantasy||null;
+
+      // Score and sort using tiebreaker
+      const scored = allSubs.map(s=>({
+        ...s,
+        score: currentResults ? calcPredictionScore(s,currentResults) : 0,
+        fantasyScore: currentFantasy ? calcFantasyScore(s,currentFantasy) : 0,
+      })).sort((a,b)=>tiebreakerSort(a,b,currentResults));
+
+      // Paginate into 500-entry docs
+      const pages = [];
+      for (let i=0; i<scored.length; i+=PAGE_SIZE) pages.push(scored.slice(i,i+PAGE_SIZE));
+      const totalPages = pages.length||1;
+
+      // Write page docs in parallel
+      await Promise.all(pages.map((entries,i)=>
+        setDoc(doc(db,"pickem",LB_PAGE_PREFIX+i),{adminSecret:ADMIN_SECRET,page:i,entries,bakedAt:new Date().toISOString()})
+      ));
+
+      // Bump cacheVersion and write lb meta
+      const newVersion = (metaData.cacheVersion||0)+1;
+      await setDoc(doc(db,"pickem",LB_META_DOC),{adminSecret:ADMIN_SECRET,totalPages,count:allSubs.length,cacheVersion:newVersion,bakedAt:new Date().toISOString()});
+      await setDoc(doc(db,"pickem",META_DOC),{adminSecret:ADMIN_SECRET,...metaData,cacheVersion:newVersion},{merge:true});
+
+      // Invalidate all local caches
+      invalidateLbCache(); invalidateMetaCache();
+
+      showToast("Baked "+allSubs.length+" entries into "+totalPages+" pages");
+    } catch(e) { showToast("Bake failed","error"); console.error(e); }
   };
 
   const handleSaveFantasy = async () => {
     setAdminFantasySaving(true);
     try {
-      const freshSnap = await getDoc(doc(db, "pickem", META_DOC));
-      const fresh = freshSnap.exists() ? freshSnap.data() : {};
-      await setDoc(doc(db, "pickem", META_DOC), { adminSecret: ADMIN_SECRET, ...fresh, fantasy: adminFantasy }, { merge: true });
-      setFantasyData(adminFantasy);
-      showToast("Fantasy data saved!");
-    } catch { showToast("Save failed", "error"); }
+      const fs=await getDoc(doc(db,"pickem",META_DOC)); const f=fs.exists()?fs.data():{};
+      await setDoc(doc(db,"pickem",META_DOC),{adminSecret:ADMIN_SECRET,...f,fantasy:adminFantasy},{merge:true});
+      setFantasyData(adminFantasy); invalidateMetaCache();
+      showToast("Fantasy saved!");
+    } catch { showToast("Save failed","error"); }
     setAdminFantasySaving(false);
   };
 
   const handleDeleteSub = async (username) => {
-    if (!window.confirm(`Delete ${username}?`)) return;
-    try {
-      await setDoc(doc(db, "pickem", META_DOC, SUBS_COL, username), { adminSecret: ADMIN_SECRET, deleted: true }, { merge: true });
-      setAdminSubs(prev => prev.filter(s => s.username !== username));
-      showToast("Deleted");
-    } catch { showToast("Delete failed", "error"); }
+    if (!window.confirm("Delete "+username+"?")) return;
+    try { await setDoc(doc(db,"pickem",META_DOC,SUBS_COL,username),{adminSecret:ADMIN_SECRET,deleted:true},{merge:true}); setAdminSubs(p=>p.filter(s=>s.username!==username)); showToast("Deleted"); } catch { showToast("Failed","error"); }
   };
 
+  // ── Leaderboard display data ──
   const publishedResults = meta?.published ? meta?.results : null;
-  const scoredLb = lbData ? [...lbData].map(s => ({
-    ...s,
-    score: publishedResults ? calcPredictionScore(s, publishedResults) : null,
-    fantasyScore: fantasyData ? calcFantasyScore(s, fantasyData) : null,
-  })).sort((a, b) => {
-    if (lbTab === "fantasy") return (b.fantasyScore||0) - (a.fantasyScore||0);
-    if ((b.score||0) !== (a.score||0)) return (b.score||0) - (a.score||0);
-    return new Date(a.createdAt||0) - new Date(b.createdAt||0);
-  }) : null;
+  const currentPageEntries = lbPages[lbPage] || [];
+
+  // Search: if searching, scan all cached pages
+  const searchResults = useCallback(() => {
+    if (!lbSearch.trim()) return null;
+    const q = lbSearch.trim().toLowerCase();
+    const allCached = Object.values(lbPages).flat();
+    return allCached.filter(s=>(s.username||"").toLowerCase().includes(q));
+  }, [lbSearch, lbPages]);
+
+  const displayEntries = lbSearch.trim() ? (searchResults()||[]) : currentPageEntries;
+  const totalPages = lbMetaInfo?.totalPages||1;
+
+  // Rank offset for current page (for display)
+  const rankOffset = lbSearch.trim() ? 0 : lbPage * PAGE_SIZE;
 
   const closed = isClosed();
   const countdown = timeLeft();
-  const step = !identity ? 1 : (top5.length<5||!champion||finalsMvp.length<3||eventMvp.length<3||!bestIgl||!mostFinishes) ? 2 : 3;
+  const step = !identity?1:(top5.length<5||!champion||finalsMvp.length<3||eventMvp.length<3||!bestIgl||!mostFinishes)?2:3;
 
-  // ── Admin render ──────────────────────────────────────────────
+  // ── Admin render ──
   if (IS_ADMIN) return (
     <>
       <style>{CSS}</style>
       <div className="app">
         <div className="hero">
-          <img src={IMGS["BGIS_2026_Logo_White"]} className="hero-logo" alt="BGIS 2026" />
+          <img src={LOGO("BGIS_2026_Logo_White")} className="hero-logo" alt="BGIS 2026"/>
           <div className="hero-title">ADMIN <span>PANEL</span></div>
           <div className="hero-sub">BGIS 2026 Grand Finals Pick'em</div>
         </div>
-        <div style={{ maxWidth: 900, margin: "0 auto", padding: "20px 16px" }}>
-          {!adminUnlocked ? (
-            <div className="admin-box" style={{ maxWidth: 360 }}>
+        <div style={{maxWidth:900,margin:"0 auto",padding:"18px 16px"}}>
+          {!adminUnlocked?(
+            <div className="admin-box" style={{maxWidth:340}}>
               <div className="admin-title">Admin Access</div>
-              <div style={{ marginBottom: 12 }}>
-                <div className="admin-label">Password</div>
-                <input className="input" type="password" placeholder="Enter admin password"
-                  value={adminPassInput} onChange={e => setAdminPassInput(e.target.value)}
-                  onKeyDown={e => e.key==="Enter" && handleAdminLogin()} />
+              <div style={{marginBottom:10}}>
+                <div className="alabel">Password</div>
+                <input className="input" type="password" placeholder="Enter password" value={adminPassInput} onChange={e=>setAdminPassInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleAdminLogin()}/>
               </div>
               <button className="btn btn-primary btn-full" onClick={handleAdminLogin}>Unlock</button>
             </div>
-          ) : (
+          ):(
             <>
               <div className="admin-box">
                 <div className="admin-title">📊 Stats</div>
                 <div className="info-row">
-                  <span>Submissions: <strong>{subCount ?? "..."}</strong></span>
-                  <span>Published: <strong>{meta?.published ? "Yes ✅" : "No"}</strong></span>
+                  <span>Submissions: <strong>{subCount??"-"}</strong></span>
+                  <span>Published: <strong>{meta?.published?"Yes ✅":"No"}</strong></span>
+                  <span>LB Pages: <strong>{lbMetaInfo?.totalPages??"-"}</strong></span>
                 </div>
-                <div className="btn-row" style={{ marginTop: 12 }}>
-                  <button className="btn btn-outline" onClick={loadAdminSubs} disabled={adminFetching}>{adminFetching?"Loading...":"🔄 Refresh"}</button>
-                  <button className="btn btn-purple" onClick={bakeLeaderboard}>🗜 Bake Cache</button>
+                <div className="btn-row" style={{marginTop:10}}>
+                  <button className="btn btn-outline" onClick={loadAdminSubs} disabled={adminFetching}>{adminFetching?"Loading...":"🔄 Refresh Subs"}</button>
+                  <button className="btn btn-purple" onClick={bakeLeaderboard}>🗜 Bake Leaderboard</button>
                   {!meta?.published
-                    ? <button className="btn btn-green" onClick={() => handlePublishToggle(true)}>✅ Publish Scores</button>
-                    : <button className="btn btn-red" onClick={() => handlePublishToggle(false)}>🔒 Hide Scores</button>}
+                    ?<button className="btn btn-green" onClick={()=>handlePublishToggle(true)}>✅ Publish Scores</button>
+                    :<button className="btn btn-red" onClick={()=>handlePublishToggle(false)}>🔒 Hide Scores</button>}
+                </div>
+                <div style={{fontSize:11,color:"#94a3b8",marginTop:8}}>
+                  Bake sorts all entries with tiebreaker, paginates into {PAGE_SIZE}/page docs. Run after updating results or fantasy data.
                 </div>
               </div>
 
               <div className="admin-box">
-                <div className="admin-title">🏆 Results</div>
-                <div className="admin-grid">
-                  {[0,1,2,3,4].map(i => (
+                <div className="admin-title">🏆 Set Results</div>
+                <div className="agrid">
+                  {[0,1,2,3,4].map(i=>(
                     <div key={i}>
-                      <div className="admin-label">Top 5 — #{i+1}</div>
-                      <select className="admin-select" value={results.top5?.[i]||""} onChange={e => { const v=[...(results.top5||["","","","",""])]; v[i]=e.target.value; setResults(p=>({...p,top5:v})); }}>
-                        <option value="">— Select —</option>
-                        {TEAMS.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                      </select>
-                    </div>
-                  ))}
-                  {[["champion","Champion"],["finalsMvp","Finals MVP"],["eventMvp","Event MVP"]].map(([k,l]) => (
-                    <div key={k}>
-                      <div className="admin-label">{l}</div>
-                      <select className="admin-select" value={results[k]||""} onChange={e => setResults(p=>({...p,[k]:e.target.value}))}>
-                        <option value="">— Select —</option>
-                        {k==="champion" ? TEAMS.map(t=><option key={t.id} value={t.name}>{t.name}</option>) : ALL_PLAYERS.map(p=><option key={p.player} value={p.player}>{p.player} ({p.team})</option>)}
+                      <div className="alabel">Top 5 — #{i+1}</div>
+                      <select className="aselect" value={results.top5?.[i]||""} onChange={e=>{const v=[...(results.top5||["","","","",""])];v[i]=e.target.value;setResults(p=>({...p,top5:v}));}}>
+                        <option value="">— Select —</option>{TEAMS.map(t=><option key={t.id} value={t.name}>{t.name}</option>)}
                       </select>
                     </div>
                   ))}
                   <div>
-                    <div className="admin-label">Best IGL</div>
-                    <select className="admin-select" value={results.bestIgl||""} onChange={e=>setResults(p=>({...p,bestIgl:e.target.value}))}>
-                      <option value="">— Select —</option>
-                      {ALL_IGLS.map(p=><option key={p.player} value={p.player}>{p.player} ({p.team})</option>)}
+                    <div className="alabel">Champion</div>
+                    <select className="aselect" value={results.champion||""} onChange={e=>setResults(p=>({...p,champion:e.target.value}))}>
+                      <option value="">— Select —</option>{TEAMS.map(t=><option key={t.id} value={t.name}>{t.name}</option>)}
+                    </select>
+                  </div>
+                  {[["finalsMvp","Finals MVP"],["eventMvp","Event MVP"]].map(([k,l])=>(
+                    <div key={k}>
+                      <div className="alabel">{l}</div>
+                      <select className="aselect" value={results[k]||""} onChange={e=>setResults(p=>({...p,[k]:e.target.value}))}>
+                        <option value="">— Select —</option>
+                        {TEAMS.flatMap(t=>t.players.map(p=><option key={k+p} value={p}>{p} ({t.name})</option>))}
+                      </select>
+                    </div>
+                  ))}
+                  <div>
+                    <div className="alabel">Best IGL</div>
+                    <select className="aselect" value={results.bestIgl||""} onChange={e=>setResults(p=>({...p,bestIgl:e.target.value}))}>
+                      <option value="">— Select —</option>{ALL_IGLS.map(p=><option key={p.player} value={p.player}>{p.player} ({p.team})</option>)}
                     </select>
                   </div>
                   <div>
-                    <div className="admin-label">Most Kills (team)</div>
-                    <select className="admin-select" value={results.mostFinishes||""} onChange={e=>setResults(p=>({...p,mostFinishes:e.target.value}))}>
-                      <option value="">— Select —</option>
-                      {TEAMS.map(t=><option key={t.id} value={t.name}>{t.name}</option>)}
+                    <div className="alabel">Most Kills (team)</div>
+                    <select className="aselect" value={results.mostFinishes||""} onChange={e=>setResults(p=>({...p,mostFinishes:e.target.value}))}>
+                      <option value="">— Select —</option>{TEAMS.map(t=><option key={t.id} value={t.name}>{t.name}</option>)}
                     </select>
                   </div>
                 </div>
@@ -815,27 +942,25 @@ export default function App() {
               </div>
 
               <div className="admin-box">
-                <div className="admin-title">⚡ Fantasy Data (Live Updates)</div>
-                <p style={{fontSize:12,color:"#64748b",marginBottom:14}}>Update after each match day.</p>
-                <div className="admin-label" style={{marginBottom:8}}>Team Points</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:8,marginBottom:16}}>
+                <div className="admin-title">⚡ Fantasy Data</div>
+                <p style={{fontSize:11,color:"#64748b",marginBottom:12}}>Update after each match day. Team pts ×1.5 for champion. Player kills ×1.5 for MVP 1st choice. After saving, run Bake Leaderboard.</p>
+                <div className="alabel" style={{marginBottom:7}}>Team Points</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(175px,1fr))",gap:7,marginBottom:14}}>
                   {TEAMS.map(t=>(
-                    <div key={t.id} className="fantasy-input-wrap">
-                      <label className="fantasy-label">{t.name}</label>
-                      <input type="number" className="fantasy-input" placeholder="0"
-                        value={adminFantasy.teamPoints?.[t.id]??""} onChange={e=>setAdminFantasy(p=>({...p,teamPoints:{...p.teamPoints,[t.id]:parseInt(e.target.value)||0}}))} />
+                    <div key={t.id} className="fi-wrap">
+                      <label className="fi-label">{t.name}</label>
+                      <input type="number" className="fi" placeholder="0" value={adminFantasy.teamPoints?.[t.id]??""} onChange={e=>setAdminFantasy(p=>({...p,teamPoints:{...p.teamPoints,[t.id]:parseInt(e.target.value)||0}}))}/>
                     </div>
                   ))}
                 </div>
-                <div className="admin-label" style={{marginBottom:8}}>Player Kills</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:8,marginBottom:16}}>
-                  {ALL_PLAYERS.map(p=>(
-                    <div key={p.player} className="fantasy-input-wrap">
-                      <label className="fantasy-label">{p.player} <span style={{color:"#94a3b8"}}>({TEAMS.find(t=>t.id===p.teamId)?.name?.split(" ")[0]})</span></label>
-                      <input type="number" className="fantasy-input" placeholder="0"
-                        value={adminFantasy.playerKills?.[p.player]??""} onChange={e=>setAdminFantasy(p=>({...p,playerKills:{...p.playerKills,[p.player]:parseInt(e.target.value)||0}}))} />
+                <div className="alabel" style={{marginBottom:7}}>Player Kills</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:7,marginBottom:14}}>
+                  {TEAMS.flatMap(t=>t.players.map(p=>(
+                    <div key={p} className="fi-wrap">
+                      <label className="fi-label">{p} <span style={{color:"#94a3b8"}}>({t.name.split(" ")[0]})</span></label>
+                      <input type="number" className="fi" placeholder="0" value={adminFantasy.playerKills?.[p]??""} onChange={e=>setAdminFantasy(prev=>({...prev,playerKills:{...prev.playerKills,[p]:parseInt(e.target.value)||0}}))}/>
                     </div>
-                  ))}
+                  )))}
                 </div>
                 <button className="btn btn-primary" onClick={handleSaveFantasy} disabled={adminFantasySaving}>{adminFantasySaving?"Saving...":"💾 Save Fantasy Data"}</button>
               </div>
@@ -843,24 +968,21 @@ export default function App() {
               <div className="admin-box">
                 <div className="admin-title">📋 Submissions ({adminSubs.length})</div>
                 <div style={{overflowX:"auto"}}>
-                  <table className="table">
-                    <thead><tr><th>#</th><th>Username</th><th>Top 5</th><th>Champion</th><th>Finals MVP (1st)</th><th>Event MVP (1st)</th><th>IGL</th><th>Kills Team</th><th>Submitted</th><th></th></tr></thead>
+                  <table className="tbl">
+                    <thead><tr><th>#</th><th>User</th><th>Top 5</th><th>Champion</th><th>F.MVP</th><th>E.MVP</th><th>IGL</th><th>Kills</th><th>Time</th><th></th></tr></thead>
                     <tbody>
                       {[...adminSubs].sort((a,b)=>new Date(b.timestamp||0)-new Date(a.timestamp||0)).map((s,i)=>(
                         <tr key={s.username}>
-                          <td className="rank-cell">{i+1}</td>
+                          <td className="rank-c">{i+1}</td>
                           <td><strong>{s.username}</strong></td>
-                          <td style={{fontSize:11}}>{(s.top5||[]).join(", ")}</td>
-                          <td style={{fontSize:11}}>{s.champion}</td>
-                          <td style={{fontSize:11}}>{s.finalsMvp?.[0]}</td>
-                          <td style={{fontSize:11}}>{s.eventMvp?.[0]}</td>
-                          <td style={{fontSize:11}}>{s.bestIgl}</td>
-                          <td style={{fontSize:11}}>{s.mostFinishes}</td>
-                          <td style={{fontSize:11,color:"#64748b"}}>{s.timestamp?fmtTime(s.timestamp):"-"}</td>
+                          <td style={{maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(s.top5||[]).join(", ")}</td>
+                          <td>{s.champion}</td><td>{s.finalsMvp?.[0]}</td><td>{s.eventMvp?.[0]}</td>
+                          <td>{s.bestIgl}</td><td>{s.mostFinishes}</td>
+                          <td style={{color:"#94a3b8"}}>{s.timestamp?fmtTime(s.timestamp):"-"}</td>
                           <td><button className="del-btn" onClick={()=>handleDeleteSub(s.username)}>Delete</button></td>
                         </tr>
                       ))}
-                      {!adminSubs.length&&<tr><td colSpan={10} style={{textAlign:"center",color:"#94a3b8",padding:22}}>No submissions.</td></tr>}
+                      {!adminSubs.length&&<tr><td colSpan={10} style={{textAlign:"center",color:"#94a3b8",padding:20}}>No submissions.</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -873,65 +995,62 @@ export default function App() {
     </>
   );
 
-  // ── Main render ───────────────────────────────────────────────
+  // ── Main render ──
   return (
     <>
       <style>{CSS}</style>
       <div className="app">
+
         <div className="hero">
-          <img src={IMGS["BGIS_2026_Logo_White"]} className="hero-logo" alt="BGIS 2026"/>
+          <img src={LOGO("BGIS_2026_Logo_White")} className="hero-logo" alt="BGIS 2026"/>
           <div className="hero-title">GRAND FINALS <span>PICK'EM</span></div>
           <div className="hero-sub">Battlegrounds Mobile India Series 2026 · Chennai</div>
           <div className="hero-badges">
             {closed
-              ? <span className="badge badge-red"><span className="badge-dot"/>Submissions Closed</span>
-              : <span className="badge badge-green"><span className="badge-dot pulse"/>Open · {countdown||"Closing soon"}</span>}
+              ?<span className="badge badge-red"><span className="badge-dot"/>Submissions Closed</span>
+              :<span className="badge badge-green"><span className="badge-dot pulse"/>Open · {countdown||"Closing soon"}</span>}
             <span className="badge badge-blue">16 Teams · 215 pts max</span>
-            <a href="https://esportsamaze.in/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026" target="_blank" rel="noopener noreferrer" className="tournament-link">
-              🔗 Tournament Page
-            </a>
+            <a href="https://esportsamaze.in/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026" target="_blank" rel="noopener noreferrer" className="tour-link">🔗 Tournament Page</a>
           </div>
         </div>
 
         <div className="score-strip">
-          <span className="score-item"><span className="score-dot" style={{background:"#1a56db"}}/>Top 5: 10 pts each</span>
-          <span className="score-item"><span className="score-dot" style={{background:"#f59e0b"}}/>Champion: 30 pts</span>
-          <span className="score-item"><span className="score-dot" style={{background:"#7c3aed"}}/>Finals MVP: 50/20 pts</span>
-          <span className="score-item"><span className="score-dot" style={{background:"#16a34a"}}/>Event MVP: 40/20 pts</span>
-          <span className="score-item"><span className="score-dot" style={{background:"#ef4444"}}/>Best IGL: 25 pts</span>
-          <span className="score-item"><span className="score-dot" style={{background:"#64748b"}}/>Most Kills: 20 pts</span>
+          <span className="si"><span className="sd" style={{background:"#1a56db"}}/>Top 5: 10 pts</span>
+          <span className="si"><span className="sd" style={{background:"#f59e0b"}}/>Champion: 30 pts</span>
+          <span className="si"><span className="sd" style={{background:"#7c3aed"}}/>Finals MVP: 50/20</span>
+          <span className="si"><span className="sd" style={{background:"#16a34a"}}/>Event MVP: 40/20</span>
+          <span className="si"><span className="sd" style={{background:"#ef4444"}}/>Best IGL: 25</span>
+          <span className="si"><span className="sd" style={{background:"#64748b"}}/>Most Kills: 20</span>
         </div>
 
         <div className="nav">
-          {[{id:"picks",label:"🎮 Make Picks"},{id:"my",label:"📋 My Submission"},{id:"lb",label:"🏆 Leaderboard"}].map(t=>(
-            <button key={t.id} className={`nav-btn${tab===t.id?" active":""}`} onClick={()=>setTab(t.id)}>{t.label}</button>
+          {[{id:"picks",l:"🎮 Make Picks"},{id:"my",l:"📋 My Submission"},{id:"lb",l:"🏆 Leaderboard"}].map(t=>(
+            <button key={t.id} className={`nb${tab===t.id?" active":""}`} onClick={()=>setTab(t.id)}>{t.l}</button>
           ))}
         </div>
 
         {/* PICKS TAB */}
         {tab==="picks"&&(
-          <div className="container" style={{paddingTop:20}}>
+          <div className="wrap" style={{paddingTop:18}}>
             {!meta?<div className="loading"><div className="spinner"/>Loading...</div>:(
               <>
                 {!closed&&(
                   <div className="steps">
                     {[{n:1,l:"Your Name"},{n:2,l:"Make Picks"},{n:3,l:"Submit"}].map(s=>(
                       <div key={s.n} className={`step${step===s.n?" active":step>s.n?" done":""}`}>
-                        <span className="step-n">{step>s.n?"✓":s.n}</span>{s.l}
+                        <span className="sn">{step>s.n?"✓":s.n}</span>{s.l}
                       </div>
                     ))}
                   </div>
                 )}
-
                 {!identity?(
                   <>
                     {pinFlow==="username"&&(
                       <div className="auth-card">
                         <div className="auth-title">Enter your username</div>
-                        <div className="auth-sub">Choose any username (letters, numbers, underscores). You'll use a 6-digit PIN from other devices.</div>
+                        <div className="auth-sub">Pick any username (letters, numbers, underscores). You'll use a 6-digit PIN from other devices.</div>
                         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                          <input className="input" style={{flex:1,minWidth:160}} placeholder="e.g. bgmi_fan_2026"
-                            value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleConfirm()}/>
+                          <input className="input" style={{flex:1,minWidth:150}} placeholder="e.g. bgmi_fan_2026" value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleConfirm()}/>
                           <button className="btn btn-primary" onClick={handleConfirm} disabled={idLoading||!usernameInput.trim()}>{idLoading?"Checking...":"Continue →"}</button>
                         </div>
                       </div>
@@ -940,11 +1059,10 @@ export default function App() {
                       <div className="auth-card">
                         <div className="auth-title">Set a 6-digit PIN</div>
                         <div className="auth-sub">Protects your picks. Needed to edit from another device. <strong>Don't share it.</strong></div>
-                        <input className={`input pin-input${pinError?" err":""}`} type="number" inputMode="numeric" placeholder="000000"
-                          value={pinInput} onChange={e=>{setPinInput(e.target.value.slice(0,6));setPinError("");}} onKeyDown={e=>e.key==="Enter"&&handleSetPin()}/>
+                        <input className={`input pin-input${pinError?" err":""}`} type="number" inputMode="numeric" placeholder="000000" value={pinInput} onChange={e=>{setPinInput(e.target.value.slice(0,6));setPinError("");}} onKeyDown={e=>e.key==="Enter"&&handleSetPin()}/>
                         {pinError&&<div className="err-text">{pinError}</div>}
-                        <div className="btn-row" style={{marginTop:12}}>
-                          <button className="btn btn-primary" onClick={handleSetPin} disabled={pinInput.length!==6}>Set PIN & Continue →</button>
+                        <div className="btn-row" style={{marginTop:11}}>
+                          <button className="btn btn-primary" onClick={handleSetPin} disabled={pinInput.length!==6}>Set PIN →</button>
                           <button className="btn btn-outline" onClick={()=>{setPinFlow("username");setPinInput("");setPinError("");}}>← Back</button>
                         </div>
                       </div>
@@ -953,11 +1071,10 @@ export default function App() {
                       <div className="auth-card">
                         <div className="auth-title">Enter your PIN</div>
                         <div className="auth-sub"><strong>{pendingDocId}</strong> already exists. Enter your 6-digit PIN.</div>
-                        <input className={`input pin-input${pinError?" err":""}`} type="number" inputMode="numeric" placeholder="000000"
-                          value={pinInput} onChange={e=>{setPinInput(e.target.value.slice(0,6));setPinError("");}} onKeyDown={e=>e.key==="Enter"&&handleVerifyPin()}/>
+                        <input className={`input pin-input${pinError?" err":""}`} type="number" inputMode="numeric" placeholder="000000" value={pinInput} onChange={e=>{setPinInput(e.target.value.slice(0,6));setPinError("");}} onKeyDown={e=>e.key==="Enter"&&handleVerifyPin()}/>
                         {pinError&&<div className="err-text">{pinError}</div>}
-                        <div className="btn-row" style={{marginTop:12}}>
-                          <button className="btn btn-primary" onClick={handleVerifyPin} disabled={idLoading||pinInput.length!==6}>{idLoading?"Verifying...":"Verify PIN →"}</button>
+                        <div className="btn-row" style={{marginTop:11}}>
+                          <button className="btn btn-primary" onClick={handleVerifyPin} disabled={idLoading||pinInput.length!==6}>{idLoading?"Verifying...":"Verify →"}</button>
                           <button className="btn btn-outline" onClick={()=>{setPinFlow("username");setPinInput("");setPinError("");}}>← Back</button>
                         </div>
                       </div>
@@ -966,25 +1083,20 @@ export default function App() {
                 ):(
                   <div className="user-bar">
                     <div className="user-bar-name">👤 {identity.username}</div>
-                    {identity.isReturning&&<span className="status-chip status-open">Editing</span>}
+                    {identity.isReturning&&<span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"rgba(26,86,219,.08)",color:"#1e40af"}}>Editing</span>}
                     <div style={{flex:1}}/>
                     <button className="btn btn-outline" style={{fontSize:11,padding:"5px 10px"}} onClick={resetIdentity}>Change</button>
                   </div>
                 )}
 
                 {identity&&closed&&!mySubmission&&(
-                  <div className="locked">
-                    <div className="locked-icon">⛔</div>
-                    <div className="locked-title">Submissions Closed</div>
-                    <div className="locked-sub">Picks closed Mar 27 at 1 PM IST. Check the Leaderboard.</div>
-                  </div>
+                  <div className="locked"><div className="locked-icon">⛔</div><div className="locked-title">Submissions Closed</div><div className="locked-sub">Picks closed Mar 27 at 1 PM IST.</div></div>
                 )}
-
                 {identity&&submitted&&(
-                  <div className="success-card">
-                    <div className="success-icon">🎮</div>
-                    <div className="success-title">Picks Locked In!</div>
-                    <div style={{color:"#64748b",fontSize:13,marginBottom:16}}>{identity.username} · Grand Finals</div>
+                  <div style={{textAlign:"center",padding:"38px 20px",background:"#fff",borderRadius:14,border:"1.5px solid #e2e8f0",marginBottom:14}}>
+                    <div style={{fontSize:48,marginBottom:10}}>🎮</div>
+                    <div style={{fontFamily:"'Rajdhani',sans-serif",fontSize:24,fontWeight:700,color:"#16a34a",marginBottom:8}}>Picks Locked In!</div>
+                    <div style={{color:"#64748b",fontSize:13,marginBottom:14}}>{identity.username} · BGIS 2026 Grand Finals</div>
                     <button className="btn btn-outline" onClick={()=>setSubmitted(false)}>Edit Picks</button>
                   </div>
                 )}
@@ -993,28 +1105,23 @@ export default function App() {
                   <>
                     {/* TOP 5 */}
                     <div className="card">
-                      <div className="card-title">
-                        <span>🏅</span> Pick Top 5 Qualifying Teams
-                        <span style={{marginLeft:"auto",fontSize:12,color:"#64748b"}}>{top5.length}/5</span>
-                      </div>
+                      <div className="card-title">🏅 Pick Top 5 Teams <span style={{marginLeft:"auto",fontSize:12,color:"#64748b"}}>{top5.length}/5</span></div>
                       {top5.length>0&&(
                         <>
-                          <div className="section-label">Drag to reorder · tap ☆ to set Champion (30 pts)</div>
+                          <div className="sec-label">Drag to reorder · tap ☆ to mark Champion (30 pts)</div>
                           <DraggableTop5 top5={top5} setTop5={setTop5} champion={champion} setChampion={setChampion}/>
-                          {champion&&<div className="banner amber" style={{marginBottom:10}}>⭐ {champion} is your Champion — earns 30 pts if correct!</div>}
+                          {champion&&<div className="banner amber" style={{marginBottom:10}}>⭐ {champion} is your Champion pick!</div>}
                         </>
                       )}
-                      <div className="section-label">{top5.length<5?`Select ${5-top5.length} more team${5-top5.length>1?"s":""}`:top5.length===5&&!champion?"Now set your Champion ☆":"All 5 picked!"}</div>
+                      <div className="sec-label">{top5.length<5?"Select "+(5-top5.length)+" more team"+(5-top5.length>1?"s":""):!champion?"Now tap ☆ Champ above":"All 5 picked!"}</div>
                       <div className="teams-grid">
                         {TEAMS.map(t=>{
-                          const sel=top5.includes(t.name);
-                          const isChamp=champion===t.name;
+                          const sel=top5.includes(t.name),isChamp=champion===t.name;
                           return(
-                            <button key={t.id} className={`team-card${sel?" selected":""}${isChamp?" champion-pick":""}`}
-                              onClick={()=>toggleTop5(t.name)} disabled={!sel&&top5.length>=5}>
-                              {isChamp&&<div className="team-badge gold">★</div>}
-                              {sel&&!isChamp&&<div className="team-badge">✓</div>}
-                              <img className="team-logo" src={IMGS[t.logo]} alt=""/>
+                            <button key={t.id} className={`team-card${sel?" selected":""}${isChamp?" champ-pick":""}`} onClick={()=>toggleTop5(t.name)} disabled={!sel&&top5.length>=5}>
+                              {isChamp&&<div className="tbadge gold">★</div>}
+                              {sel&&!isChamp&&<div className="tbadge">✓</div>}
+                              <img className="team-logo" src={LOGO(t.logo)} alt=""/>
                               <div className="team-name">{t.name}</div>
                             </button>
                           );
@@ -1024,96 +1131,40 @@ export default function App() {
 
                     {/* FINALS MVP */}
                     <div className="card">
-                      <div className="card-title"><span>🎯</span> Finals MVP <span style={{marginLeft:"auto",fontSize:12,color:"#64748b"}}>{finalsMvp.length}/3</span></div>
-                      <div className="banner blue" style={{marginBottom:14}}>Pick 3 players. <strong>1st choice = 50 pts</strong> · 2nd/3rd = 20 pts if correct.</div>
-                      {finalsMvp.length>0&&(
-                        <div style={{marginBottom:12}}>
-                          <div className="chips">
-                            {finalsMvp.map((p,i)=>(
-                              <span key={p} className={`chip${i===0?" correct":""}`} style={{cursor:"pointer"}} onClick={()=>setFinalsMvp(prev=>prev.filter(x=>x!==p))}>
-                                {i===0?"⭐ ":i===1?"2nd: ":"3rd: "}{p} ✕
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      <div className="section-label">{finalsMvp.length<3?`Pick ${3-finalsMvp.length} more`:"All 3 picked!"}</div>
-                      <div className="players-grid">
-                        {ALL_PLAYERS.map(p=>{
-                          const sel=finalsMvp.includes(p.player);
-                          const idx=finalsMvp.indexOf(p.player);
-                          return(
-                            <button key={`fmvp-${p.player}-${p.teamId}`} className={`player-card${sel?" selected":""}${idx===0?" first-pick":""}`}
-                              onClick={()=>toggleMvp(p.player,finalsMvp,setFinalsMvp,3)} disabled={!sel&&finalsMvp.length>=3}>
-                              {idx>=0&&<div style={{position:"absolute",top:3,left:3,fontSize:10,fontWeight:700,color:idx===0?"#f59e0b":"#1a56db"}}>{idx===0?"★":`${idx+1}`}</div>}
-                              <img className="player-logo" src={IMGS[p.logo]} alt=""/>
-                              <div className="player-name">{p.player}</div>
-                              <div className="player-team-name">{p.team.split(" ").pop()}</div>
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <div className="card-title">🎯 Finals MVP <span style={{marginLeft:"auto",fontSize:12,color:"#64748b"}}>{finalsMvp.length}/3</span></div>
+                      <PlayerAccordion picks={finalsMvp} setPicks={setFinalsMvp} max={3} pts1={50} pts2={20}/>
                     </div>
 
                     {/* EVENT MVP */}
                     <div className="card">
-                      <div className="card-title"><span>🌟</span> Event MVP <span style={{marginLeft:"auto",fontSize:12,color:"#64748b"}}>{eventMvp.length}/3</span></div>
-                      <div className="banner blue" style={{marginBottom:14}}>Pick 3 players. <strong>1st choice = 40 pts</strong> · 2nd/3rd = 20 pts if correct.</div>
-                      {eventMvp.length>0&&(
-                        <div style={{marginBottom:12}}>
-                          <div className="chips">
-                            {eventMvp.map((p,i)=>(
-                              <span key={p} className={`chip${i===0?" correct":""}`} style={{cursor:"pointer"}} onClick={()=>setEventMvp(prev=>prev.filter(x=>x!==p))}>
-                                {i===0?"⭐ ":i===1?"2nd: ":"3rd: "}{p} ✕
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      <div className="section-label">{eventMvp.length<3?`Pick ${3-eventMvp.length} more`:"All 3 picked!"}</div>
-                      <div className="players-grid">
-                        {ALL_PLAYERS.map(p=>{
-                          const sel=eventMvp.includes(p.player);
-                          const idx=eventMvp.indexOf(p.player);
-                          return(
-                            <button key={`emvp-${p.player}-${p.teamId}`} className={`player-card${sel?" selected":""}${idx===0?" first-pick":""}`}
-                              onClick={()=>toggleMvp(p.player,eventMvp,setEventMvp,3)} disabled={!sel&&eventMvp.length>=3}>
-                              {idx>=0&&<div style={{position:"absolute",top:3,left:3,fontSize:10,fontWeight:700,color:idx===0?"#f59e0b":"#1a56db"}}>{idx===0?"★":`${idx+1}`}</div>}
-                              <img className="player-logo" src={IMGS[p.logo]} alt=""/>
-                              <div className="player-name">{p.player}</div>
-                              <div className="player-team-name">{p.team.split(" ").pop()}</div>
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <div className="card-title">🌟 Event MVP <span style={{marginLeft:"auto",fontSize:12,color:"#64748b"}}>{eventMvp.length}/3</span></div>
+                      <PlayerAccordion picks={eventMvp} setPicks={setEventMvp} max={3} pts1={40} pts2={20}/>
                     </div>
 
                     {/* BEST IGL */}
                     <div className="card">
-                      <div className="card-title"><span>🎖️</span> Best IGL — 25 pts</div>
-                      <div className="section-label">Pick the best In-Game Leader of the tournament</div>
+                      <div className="card-title">🎖️ Best IGL — 25 pts</div>
+                      <div className="sec-label">Pick the best In-Game Leader of the tournament</div>
                       <div className="teams-grid" style={{gridTemplateColumns:"repeat(auto-fill,minmax(88px,1fr))"}}>
                         {ALL_IGLS.map(p=>(
-                          <button key={p.player} className={`player-card${bestIgl===p.player?" selected":""}`}
-                            onClick={()=>setBestIgl(bestIgl===p.player?null:p.player)}>
-                            <img className="player-logo" src={IMGS[p.logo]} alt=""/>
-                            <div className="player-name">{p.player}</div>
-                            <div className="player-team-name">{p.team.split(" ").pop()}</div>
+                          <button key={p.player} className={`team-card${bestIgl===p.player?" selected":""}`} onClick={()=>setBestIgl(bestIgl===p.player?null:p.player)}>
+                            <img className="team-logo" src={LOGO(p.logo)} alt=""/>
+                            <div className="team-name" style={{fontSize:11,fontWeight:700}}>{p.player}</div>
+                            <div className="team-name" style={{fontSize:9,color:"#94a3b8"}}>{p.team.split(" ").pop()}</div>
                           </button>
                         ))}
                       </div>
-                      {bestIgl&&<div className="banner green" style={{marginTop:10,marginBottom:0}}>✅ {bestIgl} selected as Best IGL</div>}
+                      {bestIgl&&<div className="banner green" style={{marginTop:10,marginBottom:0}}>✅ {bestIgl} selected</div>}
                     </div>
 
                     {/* MOST KILLS */}
                     <div className="card">
-                      <div className="card-title"><span>💀</span> Most Kills Team — 20 pts</div>
-                      <div className="section-label">Which team will have the most total kills?</div>
+                      <div className="card-title">💀 Most Kills Team — 20 pts</div>
+                      <div className="sec-label">Which team will have the most total kills?</div>
                       <div className="teams-grid">
                         {TEAMS.map(t=>(
-                          <button key={t.id} className={`team-card${mostFinishes===t.name?" selected":""}`}
-                            onClick={()=>setMostFinishes(mostFinishes===t.name?null:t.name)}>
-                            <img className="team-logo" src={IMGS[t.logo]} alt=""/>
+                          <button key={t.id} className={`team-card${mostFinishes===t.name?" selected":""}`} onClick={()=>setMostFinishes(mostFinishes===t.name?null:t.name)}>
+                            <img className="team-logo" src={LOGO(t.logo)} alt=""/>
                             <div className="team-name">{t.name}</div>
                           </button>
                         ))}
@@ -1124,12 +1175,12 @@ export default function App() {
                     {/* SUBMIT */}
                     <div style={{maxWidth:480,margin:"0 auto 32px"}}>
                       {!canSubmit&&(
-                        <div className="banner amber" style={{marginBottom:12}}>
-                          Complete all picks to submit:
-                          {top5.length<5&&` · Top 5 (${top5.length}/5)`}
+                        <div className="banner amber" style={{marginBottom:11}}>
+                          Still needed:
+                          {top5.length<5&&" Top 5 ("+top5.length+"/5)"}
                           {!champion&&" · Champion"}
-                          {finalsMvp.length<3&&` · Finals MVP (${finalsMvp.length}/3)`}
-                          {eventMvp.length<3&&` · Event MVP (${eventMvp.length}/3)`}
+                          {finalsMvp.length<3&&" · Finals MVP ("+finalsMvp.length+"/3)"}
+                          {eventMvp.length<3&&" · Event MVP ("+eventMvp.length+"/3)"}
                           {!bestIgl&&" · Best IGL"}
                           {!mostFinishes&&" · Most Kills"}
                         </div>
@@ -1137,7 +1188,7 @@ export default function App() {
                       <button className="btn btn-primary btn-full" onClick={handleSubmit} disabled={!canSubmit||submitting}>
                         {submitting?"Submitting...":mySubmission?"Update Picks 🔄":"Submit Picks 🎮"}
                       </button>
-                      <div style={{textAlign:"center",fontSize:12,color:"#94a3b8",marginTop:8}}>Submitting again overwrites your previous picks.</div>
+                      <div style={{textAlign:"center",fontSize:11,color:"#94a3b8",marginTop:7}}>Submitting again overwrites your previous picks.</div>
                     </div>
                   </>
                 )}
@@ -1148,85 +1199,50 @@ export default function App() {
 
         {/* MY SUBMISSION TAB */}
         {tab==="my"&&(
-          <div className="container" style={{paddingTop:20}}>
+          <div className="wrap" style={{paddingTop:18}}>
             {!identity?(
-              <div className="locked">
-                <div className="locked-icon">👤</div>
-                <div className="locked-title">Sign in first</div>
-                <div className="locked-sub">Go to Make Picks, enter your username and PIN.</div>
-                <button className="btn btn-primary" style={{marginTop:14}} onClick={()=>setTab("picks")}>Make Picks →</button>
-              </div>
+              <div className="locked"><div className="locked-icon">👤</div><div className="locked-title">Sign in first</div><div className="locked-sub">Go to Make Picks, enter your username and PIN.</div><button className="btn btn-primary" style={{marginTop:13}} onClick={()=>setTab("picks")}>Make Picks →</button></div>
             ):!mySubmission?(
-              <div className="locked">
-                <div className="locked-icon">📋</div>
-                <div className="locked-title">No submission yet</div>
-                <div className="locked-sub">{closed?"Submissions are now closed.":"Head to Make Picks to submit."}</div>
-                {!closed&&<button className="btn btn-primary" style={{marginTop:14}} onClick={()=>setTab("picks")}>Make Picks →</button>}
-              </div>
+              <div className="locked"><div className="locked-icon">📋</div><div className="locked-title">No submission yet</div><div className="locked-sub">{closed?"Submissions closed.":"Head to Make Picks."}</div>{!closed&&<button className="btn btn-primary" style={{marginTop:13}} onClick={()=>setTab("picks")}>Make Picks →</button>}</div>
             ):(
               <>
                 {publishedResults&&(
-                  <div style={{background:"linear-gradient(135deg,#1a56db,#1648c0)",borderRadius:14,padding:"20px",marginBottom:16,color:"#fff",textAlign:"center"}}>
-                    <div style={{fontSize:13,opacity:0.8,marginBottom:4}}>Your Prediction Score</div>
-                    <div style={{fontFamily:"'Rajdhani',sans-serif",fontSize:52,fontWeight:700,lineHeight:1}}>
-                      {calcPredictionScore(mySubmission,publishedResults)} <span style={{fontSize:22,opacity:0.7}}>pts</span>
+                  <div style={{background:"linear-gradient(135deg,#1a56db,#1648c0)",borderRadius:14,padding:"18px",marginBottom:14,color:"#fff",textAlign:"center"}}>
+                    <div style={{fontSize:12,opacity:.8,marginBottom:3}}>Your Prediction Score</div>
+                    <div style={{fontFamily:"'Rajdhani',sans-serif",fontSize:48,fontWeight:700,lineHeight:1}}>
+                      {calcPredictionScore(mySubmission,publishedResults)} <span style={{fontSize:20,opacity:.7}}>pts</span>
                     </div>
-                    {fantasyData&&<div style={{fontSize:13,marginTop:8,opacity:0.9}}>Fantasy Score: <strong>{calcFantasyScore(mySubmission,fantasyData)} pts</strong></div>}
+                    {fantasyData&&<div style={{fontSize:12,marginTop:7,opacity:.9}}>Fantasy Score: <strong>{calcFantasyScore(mySubmission,fantasyData)} pts</strong></div>}
                   </div>
                 )}
                 <div className="card">
                   <div className="card-title">📋 Your Submission</div>
-                  <div style={{fontSize:11,color:"#94a3b8",marginBottom:14}}>Submitted {fmtTime(mySubmission.timestamp)}</div>
-                  <div style={{marginBottom:14}}>
-                    <div className="section-label">Top 5 Teams (in your order)</div>
-                    <div className="chips">
-                      {(mySubmission.top5||[]).map((team,i)=>{
-                        const correct=publishedResults?.top5?.includes(team);
-                        const isChamp=mySubmission.champion===team;
-                        return <span key={team} className={`chip${isChamp?" champion":correct?" correct":""}`}>{isChamp?"★ ":""}{i+1}. {team}</span>;
-                      })}
-                    </div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginBottom:12}}>Submitted {fmtTime(mySubmission.timestamp)}</div>
+                  <div style={{marginBottom:12}}><div className="sec-label">Top 5 (in your order)</div>
+                    <div className="chips">{(mySubmission.top5||[]).map((t,i)=>{const c=publishedResults?.top5?.includes(t),ch=mySubmission.champion===t;return<span key={t} className={`chip${ch?" champion":c?" correct":""}`}>{ch?"★ ":""}{i+1}. {t}</span>;})}</div>
                   </div>
-                  <div style={{marginBottom:14}}>
-                    <div className="section-label">Finals MVP Picks</div>
-                    <div className="chips">
-                      {(mySubmission.finalsMvp||[]).map((p,i)=>{
-                        const correct=publishedResults?.finalsMvp===p;
-                        return <span key={p} className={`chip${correct?" correct":""}`}>{i===0?"⭐ ":`${i+1}. `}{p}</span>;
-                      })}
-                    </div>
+                  <div style={{marginBottom:12}}><div className="sec-label">Finals MVP Picks</div>
+                    <div className="chips">{(mySubmission.finalsMvp||[]).map((p,i)=><span key={p} className={`chip${publishedResults?.finalsMvp===p?" correct":""}`}>{i===0?"⭐ ":i+1+". "}{p}</span>)}</div>
                   </div>
-                  <div style={{marginBottom:14}}>
-                    <div className="section-label">Event MVP Picks</div>
-                    <div className="chips">
-                      {(mySubmission.eventMvp||[]).map((p,i)=>{
-                        const correct=publishedResults?.eventMvp===p;
-                        return <span key={p} className={`chip${correct?" correct":""}`}>{i===0?"⭐ ":`${i+1}. `}{p}</span>;
-                      })}
-                    </div>
+                  <div style={{marginBottom:12}}><div className="sec-label">Event MVP Picks</div>
+                    <div className="chips">{(mySubmission.eventMvp||[]).map((p,i)=><span key={p} className={`chip${publishedResults?.eventMvp===p?" correct":""}`}>{i===0?"⭐ ":i+1+". "}{p}</span>)}</div>
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                    <div>
-                      <div className="section-label">Best IGL</div>
-                      <span className={`chip${publishedResults&&mySubmission.bestIgl===publishedResults.bestIgl?" correct":""}`}>{mySubmission.bestIgl}</span>
-                    </div>
-                    <div>
-                      <div className="section-label">Most Kills Team</div>
-                      <span className={`chip${publishedResults&&mySubmission.mostFinishes===publishedResults.mostFinishes?" correct":""}`}>{mySubmission.mostFinishes}</span>
-                    </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+                    <div><div className="sec-label">Best IGL</div><span className={`chip${publishedResults&&mySubmission.bestIgl===publishedResults.bestIgl?" correct":""}`}>{mySubmission.bestIgl}</span></div>
+                    <div><div className="sec-label">Most Kills</div><span className={`chip${publishedResults&&mySubmission.mostFinishes===publishedResults.mostFinishes?" correct":""}`}>{mySubmission.mostFinishes}</span></div>
                   </div>
-                  {!closed&&<div style={{marginTop:16}}><button className="btn btn-outline" onClick={()=>{setSubmitted(false);setTab("picks");}}>✏️ Edit Picks</button></div>}
+                  {!closed&&<div style={{marginTop:14}}><button className="btn btn-outline" onClick={()=>{setSubmitted(false);setTab("picks");}}>✏️ Edit Picks</button></div>}
                 </div>
                 {publishedResults&&(
                   <div className="card">
                     <div className="card-title">🏆 Official Results</div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                      <div><div className="section-label">Top 5</div><div className="chips">{(publishedResults.top5||[]).map(t=><span key={t} className={`chip${t===publishedResults.champion?" champion":"correct"}`}>{t===publishedResults.champion?"★ ":""}{t}</span>)}</div></div>
-                      <div><div className="section-label">Champion</div><span className="chip champion">🏆 {publishedResults.champion}</span></div>
-                      <div><div className="section-label">Finals MVP</div><span className="chip correct">{publishedResults.finalsMvp}</span></div>
-                      <div><div className="section-label">Event MVP</div><span className="chip correct">{publishedResults.eventMvp}</span></div>
-                      <div><div className="section-label">Best IGL</div><span className="chip correct">{publishedResults.bestIgl}</span></div>
-                      <div><div className="section-label">Most Kills</div><span className="chip correct">{publishedResults.mostFinishes}</span></div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+                      <div><div className="sec-label">Top 5</div><div className="chips">{(publishedResults.top5||[]).map(t=><span key={t} className={`chip${t===publishedResults.champion?" champion":"correct"}`}>{t===publishedResults.champion?"★ ":""}{t}</span>)}</div></div>
+                      <div><div className="sec-label">Champion</div><span className="chip champion">🏆 {publishedResults.champion}</span></div>
+                      <div><div className="sec-label">Finals MVP</div><span className="chip correct">{publishedResults.finalsMvp}</span></div>
+                      <div><div className="sec-label">Event MVP</div><span className="chip correct">{publishedResults.eventMvp}</span></div>
+                      <div><div className="sec-label">Best IGL</div><span className="chip correct">{publishedResults.bestIgl}</span></div>
+                      <div><div className="sec-label">Most Kills</div><span className="chip correct">{publishedResults.mostFinishes}</span></div>
                     </div>
                   </div>
                 )}
@@ -1237,13 +1253,9 @@ export default function App() {
 
         {/* LEADERBOARD TAB */}
         {tab==="lb"&&(
-          <div className="container" style={{paddingTop:20}}>
+          <div className="wrap" style={{paddingTop:18}}>
             {!closed&&!meta?.published?(
-              <div className="locked">
-                <div className="locked-icon">🔒</div>
-                <div className="locked-title">Leaderboard Hidden</div>
-                <div className="locked-sub">All submissions visible after Mar 27 at 1 PM IST.</div>
-              </div>
+              <div className="locked"><div className="locked-icon">🔒</div><div className="locked-title">Leaderboard Hidden</div><div className="locked-sub">Visible after Mar 27 at 1 PM IST.</div></div>
             ):(
               <>
                 {fantasyData&&Object.keys(fantasyData.teamPoints||{}).length>0&&(
@@ -1252,64 +1264,103 @@ export default function App() {
                     <button className={`lb-tab${lbTab==="fantasy"?" active":""}`} onClick={()=>setLbTab("fantasy")}>⚡ Fantasy</button>
                   </div>
                 )}
+
                 {!meta?.published&&<div className="banner amber">⏳ Picks visible — scores appear once results are published.</div>}
-                {!scoredLb?(
-                  <div className="loading"><div className="spinner"/>Loading...</div>
+
+                {/* Search */}
+                <div className="lb-search-wrap">
+                  <span className="lb-search-icon">🔍</span>
+                  <input className="lb-search input" placeholder={"Search username across all "+((lbMetaInfo?.count||0)>0?lbMetaInfo.count+" ":"")+"entries..."} value={lbSearch} onChange={e=>{setLbSearch(e.target.value);}}/>
+                </div>
+
+                {lbMetaInfo&&!lbSearch&&(
+                  <div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>
+                    {lbMetaInfo.count} total entries · Page {lbPage+1} of {totalPages} · 
+                    {lbSearch?"":` showing ${lbPage*PAGE_SIZE+1}–${Math.min((lbPage+1)*PAGE_SIZE,lbMetaInfo.count)}`}
+                  </div>
+                )}
+
+                {lbSearch&&<div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>{displayEntries.length} result{displayEntries.length!==1?"s":""} found{Object.keys(lbPages).length<totalPages?" (searching loaded pages only)":""}</div>}
+
+                {lbLoading&&!displayEntries.length?(
+                  <div className="loading"><div className="spinner"/>Loading page {lbPage+1}...</div>
                 ):(
                   <div style={{overflowX:"auto"}}>
-                    <table className="table">
+                    <table className="tbl">
                       <thead>
                         <tr>
-                          <th>#</th><th>User</th>
-                          {meta?.published&&<th style={{textAlign:"right"}}>Score</th>}
-                          <th>Top 5</th><th>MVP Picks</th><th>IGL</th>
+                          <th style={{width:38}}>#</th>
+                          <th>User</th>
+                          {meta?.published&&<th style={{textAlign:"right",width:80}}>Score</th>}
+                          <th>Top 5 Picks</th>
+                          <th style={{width:80}}>IGL</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {scoredLb.map((s,i)=>(
-                          <tr key={s.username} style={s.username===identity?.username?{background:"rgba(26,86,219,0.04)"}:{}}>
-                            <td className="rank-cell">{i===0?"🥇":i===1?"🥈":i===2?"🥉":i+1}</td>
-                            <td>
-                              <div className="user-cell">
-                                <strong>{s.username}</strong>
-                                {s.username===identity?.username&&<span className="status-chip status-open" style={{fontSize:9}}>You</span>}
-                              </div>
-                            </td>
-                            {meta?.published&&(
-                              <td style={{textAlign:"right"}}>
-                                {lbTab==="fantasy"
-                                  ?<span className="fantasy-score">{s.fantasyScore??"-"}</span>
-                                  :<span className="score-pill">{s.score??"-"} pts</span>}
+                        {displayEntries.map((s,i)=>{
+                          // Global rank = page offset + local index (or from sorted position for search)
+                          const globalRank = lbSearch ? (i+1) : (rankOffset+i+1);
+                          return (
+                            <tr key={s.username} style={s.username===identity?.username?{background:"rgba(26,86,219,.04)"}:{}}>
+                              <td className="rank-c">{globalRank===1?"🥇":globalRank===2?"🥈":globalRank===3?"🥉":globalRank}</td>
+                              <td>
+                                <div style={{display:"flex",alignItems:"center",gap:5}}>
+                                  <strong>{s.username}</strong>
+                                  {s.username===identity?.username&&<span style={{fontSize:9,fontWeight:700,padding:"1px 6px",borderRadius:10,background:"rgba(26,86,219,.08)",color:"#1e40af"}}>You</span>}
+                                </div>
                               </td>
-                            )}
-                            <td>
-                              <div className="chips">
-                                {(s.top5||[]).map(t=>{
-                                  const correct=publishedResults?.top5?.includes(t);
-                                  const isChamp=s.champion===t;
-                                  return <span key={t} className={`chip${isChamp?" champion":correct?" correct":""}`}>{isChamp?"★":""}{t}</span>;
-                                })}
-                              </div>
-                            </td>
-                            <td>
-                              <div className="chips">
-                                {[s.finalsMvp?.[0],s.eventMvp?.[0]].filter(Boolean).map((p,pi)=>(
-                                  <span key={`${p}-${pi}`} className="chip">⭐{p}</span>
-                                ))}
-                              </div>
-                            </td>
-                            <td style={{fontSize:12}}>{s.bestIgl}</td>
-                          </tr>
-                        ))}
-                        {!scoredLb.length&&<tr><td colSpan={6} style={{textAlign:"center",color:"#94a3b8",padding:28}}>No submissions yet.</td></tr>}
+                              {meta?.published&&(
+                                <td style={{textAlign:"right"}}>
+                                  {lbTab==="fantasy"
+                                    ?<span className="fantasy-score">{s.fantasyScore??"-"}</span>
+                                    :<span className="score-pill">{s.score??"-"} pts</span>}
+                                </td>
+                              )}
+                              <td>
+                                <div className="chips">
+                                  {(s.top5||[]).map(t=>{
+                                    const c=publishedResults?.top5?.includes(t),ch=s.champion===t;
+                                    return <span key={t} className={`chip${ch?" champion":c?" correct":""}`}>{ch?"★":""}{t}</span>;
+                                  })}
+                                </div>
+                              </td>
+                              <td style={{fontSize:11}}>{s.bestIgl}</td>
+                            </tr>
+                          );
+                        })}
+                        {!displayEntries.length&&!lbLoading&&(
+                          <tr><td colSpan={5} style={{textAlign:"center",color:"#94a3b8",padding:26}}>
+                            {lbSearch?"No results found.":lbMetaInfo?"No entries on this page.":"No submissions yet."}
+                          </td></tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
                 )}
+
+                {/* Pagination — hide when searching */}
+                {!lbSearch&&lbMetaInfo&&totalPages>1&&(
+                  <div className="pagination">
+                    <button className="page-btn" onClick={()=>setLbPage(0)} disabled={lbPage===0}>«</button>
+                    <button className="page-btn" onClick={()=>setLbPage(p=>Math.max(0,p-1))} disabled={lbPage===0}>‹ Prev</button>
+                    {/* Show page numbers around current */}
+                    {Array.from({length:totalPages},(_, i)=>i).filter(i=>Math.abs(i-lbPage)<=2||i===0||i===totalPages-1).reduce((acc,i,idx,arr)=>{
+                      if (idx>0&&arr[idx-1]!==i-1) acc.push("...");
+                      acc.push(i); return acc;
+                    },[]).map((item,i)=>
+                      item==="..."
+                        ?<span key={"ellipsis"+i} className="page-info">…</span>
+                        :<button key={item} className={`page-btn${lbPage===item?" active":""}`} onClick={()=>setLbPage(item)}>{item+1}</button>
+                    )}
+                    <button className="page-btn" onClick={()=>setLbPage(p=>Math.min(totalPages-1,p+1))} disabled={lbPage===totalPages-1}>Next ›</button>
+                    <button className="page-btn" onClick={()=>setLbPage(totalPages-1)} disabled={lbPage===totalPages-1}>»</button>
+                  </div>
+                )}
+
                 {meta?.published&&(
-                  <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:12,fontSize:11,fontWeight:600,color:"#64748b"}}>
-                    <span><span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:"#16a34a",marginRight:4}}/>Correct pick</span>
-                    <span><span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:"#f59e0b",marginRight:4}}/>Champion pick</span>
+                  <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:10,fontSize:10,fontWeight:600,color:"#64748b"}}>
+                    <span><span style={{display:"inline-block",width:7,height:7,borderRadius:"50%",background:"#16a34a",marginRight:3}}/>Correct pick</span>
+                    <span><span style={{display:"inline-block",width:7,height:7,borderRadius:"50%",background:"#f59e0b",marginRight:3}}/>Champion pick</span>
                   </div>
                 )}
               </>
