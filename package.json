@@ -1,6 +1,6 @@
 {
-  "name": "bgmi-pickem",
-  "version": "1.0.0",
+  "name": "bgis2026-pickem",
+  "version": "2.0.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
