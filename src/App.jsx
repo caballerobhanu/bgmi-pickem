@@ -240,7 +240,7 @@ const CSS = `
   html { scroll-behavior:smooth; }
   body { background:#f0f4ff; font-family:'Inter',sans-serif; color:#0f172a; -webkit-font-smoothing:antialiased; overflow-x:hidden; }
   .app { min-height:100vh; padding-bottom:80px; }
-  .wrap { max-width:960px; margin:0 auto; padding:0 16px; }
+  .wrap { max-width:1200px; margin:0 auto; padding:0 24px; }
 
   .hero { background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 50%,#1a56db 100%); padding:28px 16px 24px; text-align:center; position:relative; overflow:hidden; }
   .hero::after { content:''; position:absolute; inset:0; background:radial-gradient(ellipse at 50% 120%,rgba(26,86,219,.25),transparent 70%); pointer-events:none; }
@@ -316,7 +316,7 @@ const CSS = `
   .team-card.selected { border-color:#1a56db; background:rgba(26,86,219,.06); }
   .team-card.champ-pick { border-color:#f59e0b; background:rgba(245,158,11,.07); box-shadow:0 0 0 2px rgba(245,158,11,.2); }
   .team-card:disabled { opacity:.4; cursor:not-allowed; }
-  .team-logo { width:40px; height:40px; object-fit:contain; border-radius:6px; background:#0f172a; padding:3px; }
+  .team-logo { width:40px; height:40px; object-fit:contain; }
   .team-name { font-size:10px; font-weight:600; color:#0f172a; line-height:1.2; }
   .tbadge { position:absolute; top:3px; left:3px; font-size:10px; font-weight:700; background:#1a56db; color:#fff; border-radius:4px; padding:1px 4px; line-height:1.4; }
   .tbadge.gold { background:#f59e0b; }
@@ -329,7 +329,7 @@ const CSS = `
   .drag-handle { color:#cbd5e1; font-size:15px; flex-shrink:0; }
   .drag-num { font-family:'Rajdhani',sans-serif; font-size:17px; font-weight:700; color:#1a56db; min-width:20px; text-align:center; flex-shrink:0; }
   .drag-slot.is-champ .drag-num { color:#f59e0b; }
-  .drag-logo { width:26px; height:26px; object-fit:contain; border-radius:4px; background:#0f172a; padding:2px; flex-shrink:0; }
+  .drag-logo { width:26px; height:26px; object-fit:contain; flex-shrink:0; }
   .drag-name { font-size:13px; font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .drag-actions { display:flex; align-items:center; gap:5px; flex-shrink:0; }
   .champ-btn { font-size:10px; font-weight:600; padding:2px 7px; border-radius:6px; cursor:pointer; border:1.5px solid #cbd5e1; background:transparent; color:#64748b; font-family:'Inter',sans-serif; transition:all .15s; white-space:nowrap; }
@@ -402,6 +402,22 @@ const CSS = `
   .info-row { display:flex; gap:12px; align-items:center; font-size:12px; color:#64748b; flex-wrap:wrap; }
   .info-row strong { color:#0f172a; }
   .err-text { font-size:11px; color:#dc2626; font-weight:600; margin-top:5px; }
+
+
+  /* PC two-column layout */
+  .pc-two-col { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+  @media(max-width:700px) { .pc-two-col { grid-template-columns:1fr; } }
+
+  /* Top 5 picks column */
+  .picks-col { display:flex; flex-direction:column; gap:6px; }
+
+  /* Teams grid 4 columns on PC for top5 selection */
+  .teams-grid-pc { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  @media(max-width:700px) { .teams-grid-pc { grid-template-columns:repeat(3,1fr); } }
+
+  /* Accordion two columns on PC */
+  .acc-grid { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+  @media(max-width:700px) { .acc-grid { grid-template-columns:1fr; } }
 
   @media(max-width:600px) {
     .hero { padding:20px 14px 18px; }
@@ -480,13 +496,14 @@ function PlayerAccordion({ picks, setPicks, max, pts1, pts2 }) {
         Pick 3 players. <strong>1st choice = {pts1} pts</strong> · 2nd/3rd = {pts2} pts if correct.<br/>
         Tap a team to expand, then tap a player to select.
       </div>
+      <div className="acc-grid">
       {TEAMS.map(t=>{
         const teamPicks=picks.filter(p=>t.players.includes(p)); const isOpen=open===t.id;
         return (
           <div key={t.id} style={{border:`1.5px solid ${teamPicks.length>0?"#1a56db":"#e2e8f0"}`,borderRadius:10,marginBottom:7,overflow:"hidden"}}>
             <div onClick={()=>setOpen(o=>o===t.id?null:t.id)}
               style={{display:"flex",alignItems:"center",gap:10,padding:"10px 13px",cursor:"pointer",background:"#fff",userSelect:"none"}}>
-              <img src={LOGO(t.logo)} alt="" style={{width:30,height:30,objectFit:"contain",borderRadius:5,background:"#0f172a",padding:2,flexShrink:0}}/>
+              <img src={LOGO(t.logo)} alt="" style={{width:30,height:30,objectFit:"contain",flexShrink:0}}/>
               <span style={{fontSize:13,fontWeight:600,flex:1}}>{t.name}</span>
               {teamPicks.length>0&&<span style={{fontSize:11,fontWeight:700,color:"#1a56db",background:"rgba(26,86,219,.08)",borderRadius:10,padding:"2px 8px"}}>{teamPicks.length} picked</span>}
               <span style={{fontSize:11,color:"#94a3b8",transition:"transform .2s",transform:isOpen?"rotate(180deg)":"none",flexShrink:0}}>▼</span>
@@ -510,6 +527,7 @@ function PlayerAccordion({ picks, setPicks, max, pts1, pts2 }) {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
@@ -1116,26 +1134,44 @@ export default function App() {
                     {/* TOP 5 */}
                     <div className="card">
                       <div className="card-title">🏅 Pick Top 5 Teams <span style={{marginLeft:"auto",fontSize:12,color:"#64748b"}}>{top5.length}/5</span></div>
-                      {top5.length>0&&(
-                        <>
-                          <div className="sec-label">Drag to reorder · tap ☆ to mark Champion (30 pts)</div>
-                          <DraggableTop5 top5={top5} setTop5={setTop5} champion={champion} setChampion={setChampion}/>
-                          {champion&&<div className="banner amber" style={{marginBottom:10}}>⭐ {champion} is your Champion pick!</div>}
-                        </>
-                      )}
-                      <div className="sec-label">{top5.length<5?"Select "+(5-top5.length)+" more team"+(5-top5.length>1?"s":""):!champion?"Now tap ☆ Champ above":"All 5 picked!"}</div>
-                      <div className="teams-grid">
-                        {TEAMS.map(t=>{
-                          const sel=top5.includes(t.name),isChamp=champion===t.name;
-                          return(
-                            <button key={t.id} className={`team-card${sel?" selected":""}${isChamp?" champ-pick":""}`} onClick={()=>toggleTop5(t.name)} disabled={!sel&&top5.length>=5}>
-                              {isChamp&&<div className="tbadge gold">★</div>}
-                              {sel&&!isChamp&&<div className="tbadge">✓</div>}
-                              <img className="team-logo" src={LOGO(t.logo)} alt=""/>
-                              <div className="team-name">{t.name}</div>
-                            </button>
-                          );
-                        })}
+                      <div className="pc-two-col">
+                        {/* Left col: picked slots */}
+                        <div>
+                          {top5.length>0&&(
+                            <>
+                              <div className="sec-label">Drag to reorder · tap ☆ Champion (30 pts)</div>
+                              <DraggableTop5 top5={top5} setTop5={setTop5} champion={champion} setChampion={setChampion}/>
+                              {champion&&<div className="banner amber" style={{marginBottom:10}}>⭐ {champion} is your Champion pick!</div>}
+                            </>
+                          )}
+                          {top5.length<5&&(
+                            <div style={{padding:"20px 0",color:"#94a3b8",fontSize:13,textAlign:"center"}}>
+                              {top5.length===0?"Pick 5 teams from the grid →":"Pick "+(5-top5.length)+" more from the grid →"}
+                            </div>
+                          )}
+                          {top5.length===5&&!champion&&(
+                            <div style={{padding:"10px 0",color:"#92400e",fontSize:13,fontWeight:600}}>
+                              Now tap ☆ Champ on one of your picks
+                            </div>
+                          )}
+                        </div>
+                        {/* Right col: 4x4 team grid */}
+                        <div>
+                          <div className="sec-label">{top5.length<5?"Select teams":"All 5 picked!"}</div>
+                          <div className="teams-grid-pc">
+                            {TEAMS.map(t=>{
+                              const sel=top5.includes(t.name),isChamp=champion===t.name;
+                              return(
+                                <button key={t.id} className={`team-card${sel?" selected":""}${isChamp?" champ-pick":""}`} onClick={()=>toggleTop5(t.name)} disabled={!sel&&top5.length>=5}>
+                                  {isChamp&&<div className="tbadge gold">★</div>}
+                                  {sel&&!isChamp&&<div className="tbadge">✓</div>}
+                                  <img className="team-logo" src={LOGO(t.logo)} alt=""/>
+                                  <div className="team-name">{t.name}</div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                       </div>
                     </div>
 
