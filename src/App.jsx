@@ -1358,8 +1358,11 @@ export default function App() {
                           <th style={{width:38}}>#</th>
                           <th>User</th>
                           {meta?.published&&<th style={{textAlign:"right",width:70}}>Score</th>}
-                          <th style={{width:100}}>Champion</th>
-                          <th>Other Picks</th>
+                          <th style={{width:90}}>Champion</th>
+                          <th>Other 4</th>
+                          <th style={{width:80}}>F.MVP</th>
+                          <th style={{width:80}}>E.MVP</th>
+                          <th style={{width:90}}>Kills Team</th>
                           <th style={{width:70}}>IGL</th>
                         </tr>
                       </thead>
@@ -1398,12 +1401,35 @@ export default function App() {
                                   })}
                                 </div>
                               </td>
+                              <td>
+                                <div className="chips">
+                                  {(s.finalsMvp||[]).map((p,i)=>(
+                                    <span key={p} className={`chip${publishedResults?.finalsMvp===p?" correct":""}`}>
+                                      {i===0?"⭐ ":""}{p}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td>
+                                <div className="chips">
+                                  {(s.eventMvp||[]).map((p,i)=>(
+                                    <span key={p} className={`chip${publishedResults?.eventMvp===p?" correct":""}`}>
+                                      {i===0?"⭐ ":""}{p}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td>
+                                <span className={`chip${publishedResults?.mostFinishes&&s.mostFinishes===publishedResults.mostFinishes?" correct":""}`}>
+                                  {s.mostFinishes?sn(s.mostFinishes):"-"}
+                                </span>
+                              </td>
                               <td style={{fontSize:11}}>{s.bestIgl}</td>
                             </tr>
                           );
                         })}
                         {!displayEntries.length&&!lbLoading&&(
-                          <tr><td colSpan={5} style={{textAlign:"center",color:"#94a3b8",padding:26}}>
+                          <tr><td colSpan={9} style={{textAlign:"center",color:"#94a3b8",padding:26}}>
                             {lbSearch?"No results found.":lbMetaInfo?"No entries on this page.":"No submissions yet."}
                           </td></tr>
                         )}
