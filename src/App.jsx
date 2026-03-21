@@ -13,7 +13,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
 
-const ADMIN_PASS   = import.meta.env.VITE_ADMIN_PASS;
+const ADMIN_PASS_HASH = import.meta.env.VITE_ADMIN_PASS_HASH;
 const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET;
 const ADMIN_HASH = import.meta.env.VITE_ADMIN_HASH;
 
@@ -796,10 +796,11 @@ export default function App() {
   };
 
   // ── Admin ──
-  const handleAdminLogin = () => {
+  const handleAdminLogin = async () => {
     const now=Date.now();
     if (now<adminLockUntil){showToast("Locked "+Math.ceil((adminLockUntil-now)/60000)+" min","error");return;}
-    if (adminPassInput===ADMIN_PASS){setAdminUnlocked(true);setAdminAttempts(0);localStorage.removeItem("bgis26f_admin_lock");loadAdminSubs();}
+    const inputHash = await hashPin(adminPassInput);
+    if (inputHash===ADMIN_PASS_HASH){setAdminUnlocked(true);setAdminAttempts(0);localStorage.removeItem("bgis26f_admin_lock");loadAdminSubs();}
     else{const n=adminAttempts+1;setAdminAttempts(n);if(n>=5){const lu=now+15*60000;localStorage.setItem("bgis26f_admin_lock",String(lu));showToast("Locked 15 min","error");}else showToast("Wrong. "+(5-n)+" left","error");}
   };
 
