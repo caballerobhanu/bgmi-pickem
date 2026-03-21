@@ -1099,7 +1099,7 @@ export default function App() {
                         <div className="auth-title">Enter your username</div>
                         <div className="auth-sub">Pick any username (letters, numbers, underscores). You'll use a 6-digit PIN from other devices.</div>
                         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                          <input className="input" style={{flex:1,minWidth:150}} placeholder="e.g. bgmi_fan_2026" value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleConfirm()}/>
+                          <input className="input" style={{flex:1,minWidth:150}} placeholder="e.g. esportsamaze" value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleConfirm()}/>
                           <button className="btn btn-primary" onClick={handleConfirm} disabled={idLoading||!usernameInput.trim()}>{idLoading?"Checking...":"Continue →"}</button>
                         </div>
                       </div>
