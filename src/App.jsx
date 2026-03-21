@@ -15,8 +15,7 @@ const db  = getFirestore(app);
 
 const ADMIN_PASS   = import.meta.env.VITE_ADMIN_PASS;
 const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET;
-const ADMIN_PATH   = import.meta.env.VITE_ADMIN_PATH || "bgis-chennai-2026-arth";
-const IS_ADMIN     = window.location.pathname.replace(/^\//, "") === ADMIN_PATH;
+const ADMIN_HASH = import.meta.env.VITE_ADMIN_HASH;
 
 const META_DOC      = "bgis2026_finals_meta";
 const SUBS_COL      = "bgis2026_finals_submissions";
@@ -517,6 +516,17 @@ function PlayerAccordion({ picks, setPicks, max, pts1, pts2 }) {
 
 // ── Main App ──────────────────────────────────────────────────────
 export default function App() {
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    const check = async () => {
+      if (!ADMIN_HASH) return;
+      const path = window.location.pathname.replace(/^\//, "");
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(path));
+      const hash = Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+      setIsAdmin(hash === ADMIN_HASH);
+    };
+    check();
+  }, []);
   const [tab, setTab] = useState("picks");
   const [toast, setToast] = useState(null);
   const [meta, setMeta] = useState(null);
@@ -859,7 +869,7 @@ export default function App() {
   const step = !identity?1:(top5.length<5||!champion||finalsMvp.length<3||eventMvp.length<3||!bestIgl||!mostFinishes)?2:3;
 
   // ── Admin render ──
-  if (IS_ADMIN) return (
+  if (isAdmin) return (
     <>
       <style>{CSS}</style>
       <div className="app">
