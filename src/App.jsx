@@ -54,6 +54,26 @@ const TEAMS = [
   { id:"welt",      name:"Welt Esports",             logo:"Welt_Esports",           igl:"Gokul",     players:["Gokul","Justy","Proton","Shyam","Maxioso"] },
   { id:"wyld",      name:"Wyld Fangs",               logo:"Wyld_Fangs",             igl:"SenseiOG",  players:["SenseiOG","Kanha","Spraygod","Goten","Sam"] },
 ];
+
+const SHORT = {
+  "Genesis Esports":        "GENS",
+  "Hero Xtreme GodLike":   "HX-GODL",
+  "K9 Esports":            "K9",
+  "Meta Ninza":            "NINZA",
+  "Myth Esports":          "MYTH",
+  "Nebula Esports":        "NBE",
+  "iQOO Orangutan":        "IQ-OG",
+  "iQOO Reckoning Esports":"IQ-RGE",
+  "iQOO Revenant XSpark":  "IQ-RNTX",
+  "Learn from Past":       "LEFP",
+  "iQOO SouL":             "IQ-SOUL",
+  "iQOO Team Tamilas":     "IQ-TT",
+  "Vasista Esports":       "VE",
+  "Victores Sumus":        "VS",
+  "Welt Esports":          "WELT",
+  "Wyld Fangs":            "WF",
+};
+const sn = (name) => SHORT[name] || name;
 const ALL_IGLS = TEAMS.map(t => ({ player:t.igl, team:t.name, teamId:t.id, logo:t.logo }));
 
 // ── Scoring ───────────────────────────────────────────────────────
@@ -1337,9 +1357,10 @@ export default function App() {
                         <tr>
                           <th style={{width:38}}>#</th>
                           <th>User</th>
-                          {meta?.published&&<th style={{textAlign:"right",width:80}}>Score</th>}
-                          <th>Top 5 Picks</th>
-                          <th style={{width:80}}>IGL</th>
+                          {meta?.published&&<th style={{textAlign:"right",width:70}}>Score</th>}
+                          <th style={{width:100}}>Champion</th>
+                          <th>Other Picks</th>
+                          <th style={{width:70}}>IGL</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1363,10 +1384,17 @@ export default function App() {
                                 </td>
                               )}
                               <td>
+                                {s.champion&&(
+                                  <span className={`chip${publishedResults?.top5?.includes(s.champion)?" champion":""}`}>
+                                    ★ {sn(s.champion)}
+                                  </span>
+                                )}
+                              </td>
+                              <td>
                                 <div className="chips">
-                                  {(s.top5||[]).map(t=>{
-                                    const c=publishedResults?.top5?.includes(t),ch=s.champion===t;
-                                    return <span key={t} className={`chip${ch?" champion":c?" correct":""}`}>{ch?"★":""}{t}</span>;
+                                  {(s.top5||[]).filter(t=>t!==s.champion).map(t=>{
+                                    const c=publishedResults?.top5?.includes(t);
+                                    return <span key={t} className={`chip${c?" correct":""}`}>{sn(t)}</span>;
                                   })}
                                 </div>
                               </td>
