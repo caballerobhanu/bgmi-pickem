@@ -440,15 +440,18 @@ const CSS = `
   @media(max-width:700px) { .acc-grid { grid-template-columns:1fr; } }
 
 
+  /* Top social bar */
+  .topbar { background:#0f172a; padding:6px 16px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .topbar-brand { font-size:11px; font-weight:600; color:rgba(255,255,255,.45); }
+  .topbar-brand span { color:rgba(255,255,255,.75); }
+  .topbar-socials { display:flex; align-items:center; gap:2px; margin-left:auto; }
+  .topbar-social { display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:4px 10px; border-radius:6px; font-size:11px; font-weight:600; text-decoration:none; color:rgba(255,255,255,.6); transition:all .15s; white-space:nowrap; }
+  .topbar-social:hover { color:#fff; background:rgba(255,255,255,.1); }
+  @media(max-width:480px) { .topbar-brand { display:none; } .topbar-social span { display:none; } .topbar-social { padding:5px 7px; } }
+
   /* Footer */
   .footer { background:#0f172a; padding:28px 16px 24px; margin-top:40px; }
-  .footer-logo { height:28px; object-fit:contain; opacity:.9; display:block; margin:0 auto 16px; }
-  .footer-socials { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
-  .social-btn { display:inline-flex; align-items:center; gap:6px; padding:7px 13px; border-radius:20px; font-size:12px; font-weight:600; text-decoration:none; transition:all .15s; border:1px solid rgba(255,255,255,.15); color:rgba(255,255,255,.8); background:rgba(255,255,255,.06); }
-  .social-btn:hover { background:rgba(255,255,255,.12); color:#fff; border-color:rgba(255,255,255,.3); }
-  .social-btn.instagram:hover { background:rgba(225,48,108,.2); border-color:rgba(225,48,108,.4); }
-  .social-btn.x:hover { background:rgba(255,255,255,.15); }
-  .social-btn.youtube:hover { background:rgba(255,0,0,.2); border-color:rgba(255,0,0,.4); }
+  .footer-logo { height:38px; object-fit:contain; opacity:.9; display:block; margin:0 auto 18px; }
   .footer-links { display:flex; justify-content:center; gap:16px; flex-wrap:wrap; margin-bottom:14px; }
   .footer-link { font-size:11px; font-weight:600; color:rgba(255,255,255,.5); text-decoration:none; transition:color .15s; }
   .footer-link:hover { color:rgba(255,255,255,.9); }
@@ -458,10 +461,6 @@ const CSS = `
   .footer-promo a:hover { color:#93c5fd; }
   .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.25); margin-top:12px; }
 
-  /* Hero social strip */
-  .hero-social-strip { display:flex; justify-content:center; gap:8px; flex-wrap:wrap; position:relative; z-index:1; margin-top:10px; }
-  .hero-social { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; text-decoration:none; color:rgba(255,255,255,.65); background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); transition:all .15s; }
-  .hero-social:hover { color:#fff; background:rgba(255,255,255,.13); }
 
   @media(max-width:600px) {
     .hero { padding:20px 14px 18px; }
@@ -936,6 +935,25 @@ export default function App() {
     <>
       <style>{CSS}</style>
       <div className="app">
+        {/* Top bar */}
+        <div className="topbar">
+          <div className="topbar-brand">BGIS 2026 Pick'em by <span>EsportsAmaze</span></div>
+          <div className="topbar-socials">
+            <a href="https://instagram.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="topbar-social" title="Instagram">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+              <span>Instagram</span>
+            </a>
+            <a href="https://x.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="topbar-social" title="X / Twitter">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+              <span>X</span>
+            </a>
+            <a href="https://youtube.com/@esportsamaze" target="_blank" rel="noopener noreferrer" className="topbar-social" title="YouTube">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="17" height="17"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+              <span>YouTube</span>
+            </a>
+          </div>
+        </div>
+
         <div className="hero">
           <img src={LOGO("BGIS_2026_Logo_White")} className="hero-logo" alt="BGIS 2026"/>
           <div className="hero-title">ADMIN <span>PANEL</span></div>
@@ -1074,6 +1092,25 @@ export default function App() {
       <style>{CSS}</style>
       <div className="app">
 
+        {/* Top bar */}
+        <div className="topbar">
+          <div className="topbar-brand">BGIS 2026 Pick'em by <span>EsportsAmaze</span></div>
+          <div className="topbar-socials">
+            <a href="https://instagram.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="topbar-social" title="Instagram">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+              <span>Instagram</span>
+            </a>
+            <a href="https://x.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="topbar-social" title="X / Twitter">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+              <span>X</span>
+            </a>
+            <a href="https://youtube.com/@esportsamaze" target="_blank" rel="noopener noreferrer" className="topbar-social" title="YouTube">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="17" height="17"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+              <span>YouTube</span>
+            </a>
+          </div>
+        </div>
+
         <div className="hero">
           <img src={LOGO("BGIS_2026_Logo_White")} className="hero-logo" alt="BGIS 2026"/>
           <div className="hero-title">GRAND FINALS <span>PICK'EM</span></div>
@@ -1085,14 +1122,7 @@ export default function App() {
             <span className="badge badge-blue">16 Teams · 215 pts max</span>
             <a href="https://esportsamaze.in/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026" target="_blank" rel="noopener noreferrer" className="tour-link">🔗 Tournament Page</a>
           </div>
-          {/* Social strip */}
-          <div className="hero-social-strip">
-            <a href="https://instagram.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="hero-social">📸 Instagram</a>
-            <a href="https://x.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="hero-social">𝕏 Twitter</a>
-            <a href="https://youtube.com/@esportsamaze" target="_blank" rel="noopener noreferrer" className="hero-social">▶ YouTube</a>
-            <a href="https://esportsamaze.in" target="_blank" rel="noopener noreferrer" className="hero-social">📖 Wiki</a>
-            <a href="https://esportsamaze.com" target="_blank" rel="noopener noreferrer" className="hero-social">📰 News</a>
-          </div>
+
         </div>
 
         <div className="score-strip">
@@ -1508,11 +1538,7 @@ export default function App() {
           <a href="https://esportsamaze.in" target="_blank" rel="noopener noreferrer">
             <img src="/logos/esportsamaze_singleline.png" className="footer-logo" alt="EsportsAmaze"/>
           </a>
-          <div className="footer-socials">
-            <a href="https://instagram.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="social-btn instagram">📸 Instagram</a>
-            <a href="https://x.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="social-btn x">𝕏 Twitter / X</a>
-            <a href="https://youtube.com/@esportsamaze" target="_blank" rel="noopener noreferrer" className="social-btn youtube">▶ YouTube</a>
-          </div>
+
           <div className="footer-links">
             <a href="https://esportsamaze.in" target="_blank" rel="noopener noreferrer" className="footer-link">📖 Wiki (Beta)</a>
             <a href="https://esportsamaze.com" target="_blank" rel="noopener noreferrer" className="footer-link">📰 News & Media</a>
