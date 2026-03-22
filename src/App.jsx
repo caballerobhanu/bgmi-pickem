@@ -527,7 +527,7 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(uname, 540, 295);
+  ctx.fillText(uname, 540, 300);
   ctx.restore();
 
   // ── Content zone: y=340 to y=1755 (1415px available) ──
