@@ -456,11 +456,11 @@ const CSS = `
   .footer-links { display:flex; justify-content:center; gap:16px; flex-wrap:wrap; margin-bottom:14px; }
   .footer-link { font-size:11px; font-weight:600; color:rgba(255,255,255,.5); text-decoration:none; transition:color .15s; }
   .footer-link:hover { color:rgba(255,255,255,.9); }
-  .footer-divider { border:none; border-top:1px solid rgba(255,255,255,.2); margin:14px 0; }
+  .footer-divider { border:none; border-top:1px solid rgba(255,255,255,.08); margin:14px 0; }
   .footer-promo { text-align:center; font-size:12px; color:rgba(255,255,255,.55); line-height:1.6; }
   .footer-promo a { color:#60a5fa; text-decoration:none; font-weight:600; }
   .footer-promo a:hover { color:#93c5fd; }
-  .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.55); margin-top:12px; }
+  .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.75); margin-top:12px; }
 
 
   @media(max-width:600px) {
@@ -1051,6 +1051,7 @@ export default function App() {
   const handleConfirm = async () => {
     const clean = usernameInput.trim().toLowerCase().replace(/[^a-z0-9_\-.]/g,"");
     if (!clean||clean.length<3) { showToast("Username must be at least 3 characters","error"); return; }
+    if (clean.length>16) { showToast("Username max 16 characters","error"); return; }
     setIdLoading(true); setPinError("");
     try {
       const snap = await getDoc(doc(db,USERS_COL,clean));
@@ -1469,7 +1470,7 @@ export default function App() {
                         <div className="auth-title">Enter your username</div>
                         <div className="auth-sub">Pick any username (letters, numbers, underscores). You'll use a 6-digit PIN from other devices.</div>
                         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                          <input className="input" style={{flex:1,minWidth:150}} placeholder="e.g. bgmi_fan_2026" value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleConfirm()}/>
+                          <input className="input" style={{flex:1,minWidth:150}} placeholder="e.g. esportsamaze" maxLength={16} value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleConfirm()}/>
                           <button className="btn btn-primary" onClick={handleConfirm} disabled={idLoading||!usernameInput.trim()}>{idLoading?"Checking...":"Continue →"}</button>
                         </div>
                       </div>
@@ -1876,8 +1877,8 @@ export default function App() {
           <div className="footer-made">
             Made with ❤️ by EsportsAmaze · BGIS 2026 Grand Finals Pick'em
           </div>
-          <div style={{fontSize:10,color:"rgba(255,255,255,.18)",lineHeight:1.7,textAlign:"center",maxWidth:820,margin:"14px auto 0",padding:"12px 16px",borderTop:"1px solid rgba(255,255,255,.07)"}}>
-            <strong style={{color:"rgba(255,255,255,.28)",display:"block",marginBottom:4,fontSize:11,letterSpacing:"0.05em"}}>DISCLAIMER</strong>
+          <div style={{fontSize:10,color:"rgba(255,255,255,.28)",lineHeight:1.7,textAlign:"center",maxWidth:820,margin:"14px auto 0",padding:"12px 16px",borderTop:"1px solid rgba(255,255,255,.07)"}}>
+            <strong style={{color:"rgba(255,255,255,.38)",display:"block",marginBottom:4,fontSize:11,letterSpacing:"0.05em"}}>DISCLAIMER</strong>
             This Pick'em is an independent, fan-made community project created by EsportsAmaze for entertainment purposes only. It is not affiliated with, endorsed by, sponsored by, or in any way officially connected with Krafton Inc., BGMI (Battlegrounds Mobile India), Battlegrounds Mobile India Series (BGIS), or any of the participating teams, players, or organisations featured herein. All team names, logos, player names, and tournament branding are the property of their respective owners and are used here solely for identification and fan engagement purposes under fair use. No commercial activity, paid promotion, or advertising is conducted through this platform. No real money, prizes, or monetary rewards are involved. All picks and predictions are purely for fun and do not constitute gambling, betting, or any form of wagering. EsportsAmaze does not claim ownership of any third-party intellectual property displayed on this platform. If you are a rights holder and have concerns, please contact us at connect@esportsamaze.com.
           </div>
         </div>
