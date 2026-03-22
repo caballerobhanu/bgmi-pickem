@@ -457,10 +457,10 @@ const CSS = `
   .footer-link { font-size:11px; font-weight:600; color:rgba(255,255,255,.5); text-decoration:none; transition:color .15s; }
   .footer-link:hover { color:rgba(255,255,255,.9); }
   .footer-divider { border:none; border-top:1px solid rgba(255,255,255,.08); margin:14px 0; }
-  .footer-promo { text-align:center; font-size:12px; color:rgba(255,255,255,.55); line-height:1.6; }
+  .footer-promo { text-align:center; font-size:12px; color:rgba(255,255,255,.45); line-height:1.6; }
   .footer-promo a { color:#60a5fa; text-decoration:none; font-weight:600; }
   .footer-promo a:hover { color:#93c5fd; }
-  .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.75); margin-top:12px; }
+  .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.25); margin-top:12px; }
 
 
   @media(max-width:600px) {
@@ -742,9 +742,21 @@ function ShareButtons({ picks, publishedResults, fantasyData, identity }) {
     a.click();
   };
 
-  const shareTwitter = () => {
-    const text = `My BGIS 2026 Grand Finals picks are in! 🎮\n\nChampion: ${picks.champion}\nFinals MVP: ${picks.finalsMvp?.[0]}\n\nCan you beat me? 👇`;
-    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent("https://pickem.esportsamaze.in")}`;
+  const shareTwitter = async () => {
+    const text = `My BGIS 2026 Grand Finals picks are in! 🎮\nChampion: ${picks.champion} | Finals MVP: ${picks.finalsMvp?.[0]}\nCan you beat me? 👇\n`;
+    const shareUrl = "https://pickem.esportsamaze.in";
+    if (cardUrl && navigator.canShare) {
+      try {
+        const res = await fetch(cardUrl);
+        const blob = await res.blob();
+        const file = new File([blob], "bgis2026_picks.png", { type: "image/png" });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ title: "BGIS 2026 Finals Pick'em", text, files: [file] });
+          return;
+        }
+      } catch {}
+    }
+    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
     window.open(url, "_blank");
   };
 
@@ -1877,8 +1889,8 @@ export default function App() {
           <div className="footer-made">
             Made with ❤️ by EsportsAmaze · BGIS 2026 Grand Finals Pick'em
           </div>
-          <div style={{fontSize:10,color:"rgba(255,255,255,.28)",lineHeight:1.7,textAlign:"center",maxWidth:820,margin:"14px auto 0",padding:"12px 16px",borderTop:"1px solid rgba(255,255,255,.07)"}}>
-            <strong style={{color:"rgba(255,255,255,.38)",display:"block",marginBottom:4,fontSize:11,letterSpacing:"0.05em"}}>DISCLAIMER</strong>
+          <div style={{fontSize:10,color:"rgba(255,255,255,.25)",lineHeight:1.7,textAlign:"center",maxWidth:820,margin:"14px auto 0",padding:"12px 16px",borderTop:"1px solid rgba(255,255,255,.07)"}}>
+            <strong style={{color:"rgba(255,255,255,.35)",display:"block",marginBottom:4,fontSize:11,letterSpacing:"0.05em"}}>DISCLAIMER</strong>
             This Pick'em is an independent, fan-made community project created by EsportsAmaze for entertainment purposes only. It is not affiliated with, endorsed by, sponsored by, or in any way officially connected with Krafton Inc., BGMI (Battlegrounds Mobile India), Battlegrounds Mobile India Series (BGIS), or any of the participating teams, players, or organisations featured herein. All team names, logos, player names, and tournament branding are the property of their respective owners and are used here solely for identification and fan engagement purposes under fair use. No commercial activity, paid promotion, or advertising is conducted through this platform. No real money, prizes, or monetary rewards are involved. All picks and predictions are purely for fun and do not constitute gambling, betting, or any form of wagering. EsportsAmaze does not claim ownership of any third-party intellectual property displayed on this platform. If you are a rights holder and have concerns, please contact us at connect@esportsamaze.com.
           </div>
         </div>
