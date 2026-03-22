@@ -1276,7 +1276,7 @@ export default function App() {
           <div className="hero-title">ADMIN <span>PANEL</span></div>
           <div className="hero-sub">BGIS 2026 Grand Finals Pick'em</div>
         </div>
-        <div style={{maxWidth:900,margin:"0 auto",padding:"18px 16px"}}>
+        <div style={{maxWidth:1300,margin:"0 auto",padding:"18px 24px"}}>
           {!adminUnlocked?(
             <div className="admin-box" style={{maxWidth:340}}>
               <div className="admin-title">Admin Access</div>
@@ -1383,8 +1383,8 @@ export default function App() {
                         <tr key={s.username}>
                           <td className="rank-c">{i+1}</td>
                           <td><strong>{s.username}</strong></td>
-                          <td style={{maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(s.top5||[]).join(", ")}</td>
-                          <td>{s.champion}</td><td>{s.finalsMvp?.[0]}</td><td>{s.eventMvp?.[0]}</td>
+                          <td style={{fontSize:11,lineHeight:1.5}}>{(s.top5||[]).map(t=>SHORT[t]||t).join(", ")}</td>
+                          <td>{s.champion}</td><td style={{fontSize:11}}>{(s.finalsMvp||[]).join(", ")}</td><td style={{fontSize:11}}>{(s.eventMvp||[]).join(", ")}</td>
                           <td>{s.bestIgl}</td><td>{s.mostFinishes}</td>
                           <td style={{color:"#94a3b8"}}>{s.timestamp?fmtTime(s.timestamp):"-"}</td>
                           <td><button className="del-btn" onClick={()=>handleDeleteSub(s.username)}>Delete</button></td>
