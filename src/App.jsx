@@ -551,12 +551,13 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   const CONTENT_BOT = 1740;
   const AVAILABLE = CONTENT_BOT - CONTENT_TOP;
 
-  // Dynamic row height to fill space
+  // Row height: fixed at ~1/3 less than dynamic fill
   const BOX_H = 110;
-  const ROW_GAP = 10;
   const BOX_GAP = 12;
-  const FIXED = 30 + 22 + 22 + 2*(BOX_H+BOX_GAP); // label + gap + divider + 2 box rows
-  const ROW_H = Math.floor((AVAILABLE - FIXED) / 5) - ROW_GAP;
+  const ROW_H = 118; // reduced by ~1/3 from previous dynamic value
+  const FIXED_USED = 30 + 22 + 22 + 5*(ROW_H+10) + 2*(BOX_H+BOX_GAP);
+  const EXTRA_PAD = Math.max(0, Math.floor((AVAILABLE - FIXED_USED) / 6));
+  const ROW_GAP = 10 + EXTRA_PAD; // distribute leftover space into gaps
 
   let y = CONTENT_TOP;
 
