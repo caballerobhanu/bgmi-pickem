@@ -456,11 +456,11 @@ const CSS = `
   .footer-links { display:flex; justify-content:center; gap:16px; flex-wrap:wrap; margin-bottom:14px; }
   .footer-link { font-size:11px; font-weight:600; color:rgba(255,255,255,.5); text-decoration:none; transition:color .15s; }
   .footer-link:hover { color:rgba(255,255,255,.9); }
-  .footer-divider { border:none; border-top:1px solid rgba(255,255,255,.08); margin:14px 0; }
-  .footer-promo { text-align:center; font-size:12px; color:rgba(255,255,255,.45); line-height:1.6; }
+  .footer-divider { border:none; border-top:1px solid rgba(255,255,255,.2); margin:14px 0; }
+  .footer-promo { text-align:center; font-size:12px; color:rgba(255,255,255,.55); line-height:1.6; }
   .footer-promo a { color:#60a5fa; text-decoration:none; font-weight:600; }
   .footer-promo a:hover { color:#93c5fd; }
-  .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.25); margin-top:12px; }
+  .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.55); margin-top:12px; }
 
 
   @media(max-width:600px) {
