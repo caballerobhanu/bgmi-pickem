@@ -460,7 +460,7 @@ const CSS = `
   .footer-promo { text-align:center; font-size:12px; color:rgba(255,255,255,.45); line-height:1.6; }
   .footer-promo a { color:#60a5fa; text-decoration:none; font-weight:600; }
   .footer-promo a:hover { color:#93c5fd; }
-  .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.55); margin-top:12px; }
+  .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.25); margin-top:12px; }
 
 
   @media(max-width:600px) {
@@ -477,6 +477,308 @@ const CSS = `
     .page-btn { min-width:32px; height:32px; font-size:12px; }
   }
 `;
+
+
+// ── Share Card Generator ──────────────────────────────────────────
+async function generateShareCard(picks, publishedResults, fantasyData, identity) {
+  const canvas = document.createElement("canvas");
+  const W = 1080, H = 1920;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  // Load fonts
+  try {
+    await document.fonts.load("700 48px Rajdhani");
+    await document.fonts.load("600 32px Inter");
+  } catch {}
+
+  // Background gradient
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, "#0f172a");
+  grad.addColorStop(0.5, "#1e3a5f");
+  grad.addColorStop(1, "#1a1f3a");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle grid pattern
+  ctx.strokeStyle = "rgba(255,255,255,0.03)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 60) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 60) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  // Top accent line
+  const accentGrad = ctx.createLinearGradient(0,0,W,0);
+  accentGrad.addColorStop(0,"#1a56db");
+  accentGrad.addColorStop(0.5,"#60a5fa");
+  accentGrad.addColorStop(1,"#1a56db");
+  ctx.fillStyle = accentGrad;
+  ctx.fillRect(0, 0, W, 8);
+
+  // Helper: load image
+  const loadImg = (src) => new Promise((res) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => res(img);
+    img.onerror = () => res(null);
+    img.src = src;
+  });
+
+  // Helper: rounded rect
+  const roundRect = (x,y,w,h,r,fill,stroke) => {
+    ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+    ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+    ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
+  };
+
+  // Helper: section label
+  const sectionLabel = (text, y) => {
+    ctx.font = "700 28px Inter";
+    ctx.fillStyle = "rgba(148,163,184,0.9)";
+    ctx.letterSpacing = "3px";
+    ctx.fillText(text.toUpperCase(), 80, y);
+    ctx.letterSpacing = "0px";
+    // underline
+    ctx.fillStyle = "#1a56db";
+    ctx.fillRect(80, y+8, 60, 3);
+  };
+
+  // Helper: draw logo in circle
+  const drawLogo = async (logoName, cx, cy, size) => {
+    const img = await loadImg(LOGO(logoName));
+    roundRect(cx-size/2, cy-size/2, size, size, 8, "#0f172a", null);
+    if (img) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(cx-size/2, cy-size/2, size, size, 8);
+      ctx.clip();
+      ctx.drawImage(img, cx-size/2, cy-size/2, size, size);
+      ctx.restore();
+    }
+  };
+
+  let y = 60;
+
+  // ── BGIS Logo ──
+  const bgisLogo = await loadImg(LOGO("BGIS_2026_Logo_White"));
+  if (bgisLogo) {
+    const logoH = 120, logoW = bgisLogo.width * (120/bgisLogo.height);
+    ctx.drawImage(bgisLogo, W/2 - logoW/2, y, logoW, logoH);
+  }
+  y += 150;
+
+  // ── Title ──
+  ctx.font = "700 72px Rajdhani";
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.fillText("GRAND FINALS PICK'EM", W/2, y);
+  y += 56;
+  ctx.font = "500 30px Inter";
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  ctx.fillText("Battlegrounds Mobile India Series 2026 · Chennai", W/2, y);
+  y += 60;
+
+  // ── Username card ──
+  roundRect(60, y, W-120, 90, 16, "rgba(255,255,255,0.06)", "rgba(255,255,255,0.12)");
+  ctx.font = "700 40px Inter";
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.fillText(identity?.username || "Player", W/2, y+58);
+  y += 130;
+
+  // ── Divider ──
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.fillRect(60, y, W-120, 2);
+  y += 36;
+
+  // ── TOP 5 ──
+  sectionLabel("Top 5 Picks", y); y += 48;
+  const top5 = picks.top5 || [];
+  const champ = picks.champion;
+  for (let i=0; i<top5.length; i++) {
+    const team = TEAMS.find(t=>t.name===top5[i]);
+    const isChamp = top5[i] === champ;
+    const rowY = y + i*110;
+    // Row background
+    roundRect(60, rowY, W-120, 96, 12,
+      isChamp ? "rgba(245,158,11,0.12)" : "rgba(255,255,255,0.04)",
+      isChamp ? "rgba(245,158,11,0.4)" : "rgba(255,255,255,0.08)"
+    );
+    // Rank
+    ctx.font = `700 36px Rajdhani`;
+    ctx.fillStyle = isChamp ? "#f59e0b" : "rgba(255,255,255,0.3)";
+    ctx.textAlign = "left";
+    ctx.fillText("#"+(i+1), 88, rowY+60);
+    // Logo
+    if (team) await drawLogo(team.logo, 200, rowY+48, 72);
+    // Team name
+    ctx.font = "600 34px Inter";
+    ctx.fillStyle = isChamp ? "#fbbf24" : "#ffffff";
+    ctx.textAlign = "left";
+    ctx.fillText(team?.name || top5[i], 260, rowY+56);
+    // Champion badge
+    if (isChamp) {
+      roundRect(W-220, rowY+24, 148, 48, 24, "rgba(245,158,11,0.2)", "rgba(245,158,11,0.5)");
+      ctx.font = "700 26px Inter";
+      ctx.fillStyle = "#f59e0b";
+      ctx.textAlign = "center";
+      ctx.fillText("★ CHAMPION", W-146, rowY+54);
+    }
+  }
+  y += top5.length * 110 + 24;
+
+  // ── Divider ──
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.fillRect(60, y, W-120, 2);
+  y += 36;
+
+  // ── MVP section ──
+  sectionLabel("MVP Picks", y); y += 48;
+
+  // Two columns
+  const colW = (W-160)/2;
+  const drawMvpCol = async (label, playerName, teamId, colX) => {
+    const team = TEAMS.find(t=>t.id===teamId || t.players?.includes(playerName));
+    ctx.font = "600 24px Inter";
+    ctx.fillStyle = "rgba(148,163,184,0.8)";
+    ctx.textAlign = "left";
+    ctx.fillText(label, colX, y);
+    roundRect(colX, y+10, colW-10, 90, 12, "rgba(255,255,255,0.04)", "rgba(255,255,255,0.08)");
+    if (team) await drawLogo(team.logo, colX+45, y+55, 56);
+    ctx.font = "700 30px Inter";
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "left";
+    ctx.fillText(playerName || "-", colX+80, y+62);
+  };
+
+  await drawMvpCol("Finals MVP", picks.finalsMvp?.[0], null, 80);
+  await drawMvpCol("Event MVP", picks.eventMvp?.[0], null, 80+colW+20);
+  y += 130;
+
+  // ── IGL + Kills ──
+  const drawInfoCol = async (label, value, teamId, colX) => {
+    const team = TEAMS.find(t=>t.name===value||t.igl===value);
+    ctx.font = "600 24px Inter";
+    ctx.fillStyle = "rgba(148,163,184,0.8)";
+    ctx.textAlign = "left";
+    ctx.fillText(label, colX, y);
+    roundRect(colX, y+10, colW-10, 90, 12, "rgba(255,255,255,0.04)", "rgba(255,255,255,0.08)");
+    if (team) await drawLogo(team.logo, colX+45, y+55, 56);
+    ctx.font = "700 30px Inter";
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "left";
+    ctx.fillText(value || "-", colX+80, y+62);
+  };
+
+  await drawInfoCol("Best IGL", picks.bestIgl, null, 80);
+  await drawInfoCol("Most Kills", picks.mostFinishes, null, 80+colW+20);
+  y += 130;
+
+  // ── Score (if published) ──
+  if (publishedResults && picks.score != null) {
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.fillRect(60, y, W-120, 2);
+    y += 30;
+    roundRect(W/2-160, y, 320, 100, 16, "rgba(26,86,219,0.3)", "rgba(26,86,219,0.6)");
+    ctx.font = "600 26px Inter";
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.textAlign = "center";
+    ctx.fillText("PREDICTION SCORE", W/2, y+36);
+    ctx.font = "700 56px Rajdhani";
+    ctx.fillStyle = "#60a5fa";
+    ctx.fillText((picks.score || 0)+" pts", W/2, y+86);
+    y += 130;
+  }
+
+  // ── Bottom ──
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.fillRect(60, H-180, W-120, 2);
+
+  // EsportsAmaze logo
+  const eaLogo = await loadImg("/logos/esportsamaze_singleline.png");
+  if (eaLogo) {
+    const lw = 280, lh = eaLogo.height*(280/eaLogo.width);
+    ctx.drawImage(eaLogo, W/2-lw/2, H-160, lw, lh);
+  }
+
+  // URL
+  ctx.font = "600 28px Inter";
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  ctx.textAlign = "center";
+  ctx.fillText("pickem.esportsamaze.in", W/2, H-60);
+
+  return canvas;
+}
+
+function ShareButtons({ picks, publishedResults, fantasyData, identity }) {
+  const [generating, setGenerating] = useState(false);
+  const [cardUrl, setCardUrl] = useState(null);
+
+  const generate = async () => {
+    setGenerating(true);
+    try {
+      const canvas = await generateShareCard(picks, publishedResults, fantasyData, identity);
+      const url = canvas.toDataURL("image/png");
+      setCardUrl(url);
+    } catch(e) { console.error(e); }
+    setGenerating(false);
+  };
+
+  const download = () => {
+    if (!cardUrl) return;
+    const a = document.createElement("a");
+    a.href = cardUrl;
+    a.download = `bgis2026_picks_${identity?.username||"player"}.png`;
+    a.click();
+  };
+
+  const shareTwitter = () => {
+    const text = `My BGIS 2026 Grand Finals picks are in! 🎮\n\nChampion: ${picks.champion}\nFinals MVP: ${picks.finalsMvp?.[0]}\n\nCan you beat me? 👇`;
+    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent("https://pickem.esportsamaze.in")}`;
+    window.open(url, "_blank");
+  };
+
+  const shareInstagram = () => {
+    download();
+    setTimeout(() => {
+      alert("Image downloaded! Open Instagram and share it to your story.");
+    }, 500);
+  };
+
+  return (
+    <div style={{marginTop:16}}>
+      {!cardUrl ? (
+        <button className="btn btn-primary" onClick={generate} disabled={generating} style={{width:"100%"}}>
+          {generating ? "Generating card..." : "🎨 Generate Share Card"}
+        </button>
+      ) : (
+        <>
+          <img src={cardUrl} alt="Share card preview" style={{width:"100%",borderRadius:12,marginBottom:12,border:"1.5px solid #e2e8f0"}}/>
+          <div className="btn-row">
+            <button className="btn btn-outline" style={{flex:1}} onClick={download}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download
+            </button>
+            <button className="btn btn-outline" style={{flex:1,color:"#1d9bf0",borderColor:"#1d9bf0"}} onClick={shareTwitter}>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+              Post on X
+            </button>
+            <button className="btn btn-outline" style={{flex:1,color:"#e1306c",borderColor:"#e1306c"}} onClick={shareInstagram}>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+              Instagram Story
+            </button>
+            <button className="btn btn-outline" style={{fontSize:11}} onClick={()=>setCardUrl(null)}>Regenerate</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 // ── Draggable Top 5 ───────────────────────────────────────────────
 function DraggableTop5({ top5, setTop5, champion, setChampion }) {
@@ -938,7 +1240,7 @@ export default function App() {
       <div className="app">
         {/* Top bar */}
         <div className="topbar">
-          <div className="topbar-brand">BGIS 2026 Pick'em by <span><a href="https://esportsamaze.in" target="_blank" rel="noopener noreferrer" style={{color:"inherit",textDecoration:"none"}}>eSportsAmaze</a></span></div>
+          <div className="topbar-brand">BGIS 2026 Pick'em by <span><a href="https://esportsamaze.in" target="_blank" rel="noopener noreferrer" style={{color:"inherit",textDecoration:"none"}}>EsportsAmaze</a></span></div>
           <div className="topbar-socials">
             <a href="https://instagram.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="topbar-social" title="Instagram">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
@@ -1095,7 +1397,7 @@ export default function App() {
 
         {/* Top bar */}
         <div className="topbar">
-          <div className="topbar-brand">BGIS 2026 Pick'em by <span>EsportsAmaze</span></div>
+          <div className="topbar-brand">BGIS 2026 Pick'em by <span><a href="https://esportsamaze.in" target="_blank" rel="noopener noreferrer" style={{color:"inherit",textDecoration:"none"}}>EsportsAmaze</a></span></div>
           <div className="topbar-socials">
             <a href="https://instagram.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="topbar-social" title="Instagram">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
@@ -1162,7 +1464,7 @@ export default function App() {
                         <div className="auth-title">Enter your username</div>
                         <div className="auth-sub">Pick any username (letters, numbers, underscores). You'll use a 6-digit PIN from other devices.</div>
                         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                          <input className="input" style={{flex:1,minWidth:150}} placeholder="e.g. eSportsAmaze" value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleConfirm()}/>
+                          <input className="input" style={{flex:1,minWidth:150}} placeholder="e.g. bgmi_fan_2026" value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleConfirm()}/>
                           <button className="btn btn-primary" onClick={handleConfirm} disabled={idLoading||!usernameInput.trim()}>{idLoading?"Checking...":"Continue →"}</button>
                         </div>
                       </div>
@@ -1205,11 +1507,14 @@ export default function App() {
                   <div className="locked"><div className="locked-icon">⛔</div><div className="locked-title">Submissions Closed</div><div className="locked-sub">Picks closed Mar 27 at 1 PM IST.</div></div>
                 )}
                 {identity&&submitted&&(
-                  <div style={{textAlign:"center",padding:"38px 20px",background:"#fff",borderRadius:14,border:"1.5px solid #e2e8f0",marginBottom:14}}>
-                    <div style={{fontSize:48,marginBottom:10}}>🎮</div>
-                    <div style={{fontFamily:"'Rajdhani',sans-serif",fontSize:24,fontWeight:700,color:"#16a34a",marginBottom:8}}>Picks Locked In!</div>
-                    <div style={{color:"#64748b",fontSize:13,marginBottom:14}}>{identity.username} · BGIS 2026 Grand Finals</div>
-                    <button className="btn btn-outline" onClick={()=>setSubmitted(false)}>Edit Picks</button>
+                  <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #e2e8f0",marginBottom:14,padding:"28px 20px"}}>
+                    <div style={{textAlign:"center",marginBottom:20}}>
+                      <div style={{fontSize:48,marginBottom:10}}>🎮</div>
+                      <div style={{fontFamily:"'Rajdhani',sans-serif",fontSize:24,fontWeight:700,color:"#16a34a",marginBottom:8}}>Picks Locked In!</div>
+                      <div style={{color:"#64748b",fontSize:13,marginBottom:14}}>{identity.username} · BGIS 2026 Grand Finals</div>
+                      <button className="btn btn-outline" onClick={()=>setSubmitted(false)}>Edit Picks</button>
+                    </div>
+                    <ShareButtons picks={mySubmission||{top5,champion,finalsMvp,eventMvp,bestIgl,mostFinishes}} publishedResults={publishedResults} fantasyData={fantasyData} identity={identity}/>
                   </div>
                 )}
 
@@ -1362,6 +1667,7 @@ export default function App() {
                     <div><div className="sec-label">Most Kills</div><span className={`chip${publishedResults&&mySubmission.mostFinishes===publishedResults.mostFinishes?" correct":""}`}>{mySubmission.mostFinishes}</span></div>
                   </div>
                   {!closed&&<div style={{marginTop:14}}><button className="btn btn-outline" onClick={()=>{setSubmitted(false);setTab("picks");}}>✏️ Edit Picks</button></div>}
+                  <ShareButtons picks={{...mySubmission, score: publishedResults ? calcPredictionScore(mySubmission, publishedResults) : null}} publishedResults={publishedResults} fantasyData={fantasyData} identity={identity}/>
                 </div>
                 {publishedResults&&(
                   <div className="card">
@@ -1551,7 +1857,7 @@ export default function App() {
             <a href="mailto:connect@esportsamaze.com">connect@esportsamaze.com</a> · <a href="https://esportsamaze.com" target="_blank" rel="noopener noreferrer">esportsamaze.com</a>
           </div>
           <div className="footer-made">
-            Made with ❤️ by eSportsAmaze · BGIS 2026 Grand Finals Pick'em
+            Made with ❤️ by EsportsAmaze · BGIS 2026 Grand Finals Pick'em
           </div>
         </div>
 
