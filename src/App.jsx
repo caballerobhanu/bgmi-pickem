@@ -547,7 +547,18 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   // ── Layout constants ──
   const PAD = 72;
   const INNER_W = W - PAD*2;
-  let y = 400;
+  const CONTENT_TOP = 400;
+  const CONTENT_BOT = 1740;
+  const AVAILABLE = CONTENT_BOT - CONTENT_TOP;
+
+  // Dynamic row height to fill space
+  const BOX_H = 110;
+  const ROW_GAP = 10;
+  const BOX_GAP = 12;
+  const FIXED = 30 + 22 + 22 + 2*(BOX_H+BOX_GAP); // label + gap + divider + 2 box rows
+  const ROW_H = Math.floor((AVAILABLE - FIXED) / 5) - ROW_GAP;
+
+  let y = CONTENT_TOP;
 
   // ── TOP 5 PICKS label ──
   ctx.font = `600 24px ${F}`;
@@ -559,9 +570,6 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   ctx.fillStyle = "#1a56db";
   ctx.fillRect(PAD, y+6, 44, 2.5);
   y += 30;
-
-  const ROW_H = 100; // reduced 25%
-  const ROW_GAP = 8;
   const top5 = picks.top5 || [];
   const champ = picks.champion;
 
@@ -632,7 +640,6 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   y += 22;
 
   // ── Bottom 4 boxes — center aligned, no team name, reduced height ──
-  const BOX_H = 104;
   const colW = (INNER_W-16)/2;
 
   const drawBox = async (label, value, colX, bY, findFn) => {
