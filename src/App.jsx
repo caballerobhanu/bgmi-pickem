@@ -527,15 +527,15 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(uname, 540, 285);
+  ctx.fillText(uname, 540, 295);
   ctx.restore();
 
   // ── Content zone: y=340 to y=1755 (1415px available) ──
   const PAD = 60;
   const INNER_W = W - PAD*2; // 960px
-  const ROW_H = 168;
+  const ROW_H = 140;
   const BOX_H = 118;
-  const ROW_GAP = 0; // no gap between rows
+  const ROW_GAP = 20;
   const BOX_GAP = 12;
 
   // Calculate starting y to fill space evenly
@@ -556,7 +556,7 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   ctx.letterSpacing = "3px";
   ctx.fillText("TOP 5 PICKS", PAD, y);
   ctx.letterSpacing = "0px";
-  ctx.fillStyle = "#1a56db";
+  ctx.fillStyle = "#d80047";
   ctx.fillRect(PAD, y+5, 42, 2.5);
   ctx.restore();
   y += 32 + 10;
@@ -568,30 +568,15 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   for (let i=0; i<top5.length; i++) {
     const team = TEAMS.find(t=>t.name===top5[i]);
     const isChamp = top5[i]===champ;
-    const ry = y + i*ROW_H;
+    const ry = y + i*(ROW_H+ROW_GAP);
     const midY = ry + ROW_H/2;
-    const isFirst = i===0, isLast = i===top5.length-1;
-    const rtl=isFirst?12:0, rtr=isFirst?12:0, rbr=isLast?12:0, rbl=isLast?12:0;
 
-    // Background
-    ctx.beginPath();
-    ctx.moveTo(PAD+rtl,ry);
-    ctx.lineTo(PAD+INNER_W-rtr,ry); ctx.quadraticCurveTo(PAD+INNER_W,ry,PAD+INNER_W,ry+rtr);
-    ctx.lineTo(PAD+INNER_W,ry+ROW_H-rbr); ctx.quadraticCurveTo(PAD+INNER_W,ry+ROW_H,PAD+INNER_W-rbr,ry+ROW_H);
-    ctx.lineTo(PAD+rbl,ry+ROW_H); ctx.quadraticCurveTo(PAD,ry+ROW_H,PAD,ry+ROW_H-rbl);
-    ctx.lineTo(PAD,ry+rtl); ctx.quadraticCurveTo(PAD,ry,PAD+rtl,ry);
-    ctx.closePath();
-    ctx.fillStyle = isChamp?"rgba(245,158,11,0.09)":"rgba(0,0,0,0.035)";
-    ctx.fill();
-    ctx.strokeStyle = isChamp?"rgba(245,158,11,0.45)":"rgba(0,0,0,0.09)";
-    ctx.lineWidth = isChamp?2:1;
-    ctx.stroke();
-
-    // Row separator
-    if (!isLast) {
-      ctx.fillStyle = isChamp?"rgba(245,158,11,0.15)":"rgba(0,0,0,0.06)";
-      ctx.fillRect(PAD+1, ry+ROW_H-1, INNER_W-2, 1);
-    }
+    // Each row fully rounded
+    rr(PAD, ry, INNER_W, ROW_H, 12,
+      isChamp?"rgba(245,158,11,0.09)":"rgba(0,0,0,0.035)",
+      isChamp?"rgba(245,158,11,0.45)":"rgba(0,0,0,0.09)",
+      isChamp?2:1
+    );
 
     // Rank
     ctx.save();
@@ -644,7 +629,7 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
       ctx.restore();
     }
   }
-  y += top5.length*ROW_H + 28;
+  y += top5.length*(ROW_H+ROW_GAP) - ROW_GAP + 28;
 
   // Divider
   ctx.fillStyle = "rgba(0,0,0,0.08)";
