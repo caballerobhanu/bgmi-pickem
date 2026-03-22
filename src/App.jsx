@@ -487,8 +487,8 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   const ctx = canvas.getContext("2d");
 
   try {
-    const f1 = new FontFace("Archivo", "url(https://fonts.gstatic.com/s/archivo/v19/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q.woff2)", { weight: "600" });
-    const f2 = new FontFace("Archivo", "url(https://fonts.gstatic.com/s/archivo/v19/k3kPo8UDI-1M0wlSdV9XAw6lQkqWY8Q.woff2)", { weight: "500" });
+    const f1 = new FontFace("Archivo", "url(https://fonts.gstatic.com/s/archivo/v19/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q.woff2)", {weight:"600"});
+    const f2 = new FontFace("Archivo", "url(https://fonts.gstatic.com/s/archivo/v19/k3kPo8UDI-1M0wlSdV9XAw6lQkqWY8Q.woff2)", {weight:"500"});
     await Promise.all([f1.load(), f2.load()]);
     document.fonts.add(f1); document.fonts.add(f2);
   } catch {}
@@ -520,90 +520,97 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   if (tmpl) ctx.drawImage(tmpl, 0, 0, W, H);
   else { ctx.fillStyle="#f5f5f5"; ctx.fillRect(0,0,W,H); }
 
-  // ── Username: just username centered inside the pill box ──
-  // Box is at y≈258-308, center y≈283
+  // ── USERNAME inside pill box ──
+  // Pill: x=454-619, top border y=292, center y=330
   const uname = (identity?.username || "player").toUpperCase();
   ctx.save();
-  ctx.font = `600 30px ${F}`;
+  ctx.font = `600 28px ${F}`;
   ctx.fillStyle = "#1a1a1a";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(uname, W/2, 283);
+  ctx.fillText(uname, 536, 330);
   ctx.restore();
 
-  // ── Layout ──
+  // ── LAYOUT: content zone y=380 to y=1760, total=1380px ──
+  // row_h=170 × 5 = 850, box_h=120 × 2rows = 240
+  // fixed overhead = 36+10+30+16+12 = 104 → total = 1194 → leftover 186 → distribute as padding
   const PAD = 60;
-  const INNER_W = W - PAD*2;
-  let y = 350;
+  const INNER_W = W - PAD*2; // 960px
+  const ROW_H = 170;
+  const BOX_H = 120;
+  const CONTENT_TOP = 380;
+  const CONTENT_BOT = 1755;
+  const TOTAL_AVAIL = CONTENT_BOT - CONTENT_TOP; // 1375
+  const FIXED = 36 + 10 + (5*ROW_H) + 30 + 16 + (2*BOX_H) + 12;
+  const LEFTOVER = TOTAL_AVAIL - FIXED; // leftover to distribute
+  const TOP_PAD = Math.floor(LEFTOVER * 0.15); // small top breathing room
+
+  let y = CONTENT_TOP + TOP_PAD;
 
   // TOP 5 PICKS label
   ctx.save();
   ctx.font = `600 24px ${F}`;
-  ctx.fillStyle = "rgba(0,0,0,0.32)";
+  ctx.fillStyle = "rgba(0,0,0,0.30)";
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   ctx.letterSpacing = "3px";
   ctx.fillText("TOP 5 PICKS", PAD, y);
   ctx.letterSpacing = "0px";
   ctx.fillStyle = "#1a56db";
-  ctx.fillRect(PAD, y+6, 44, 2.5);
+  ctx.fillRect(PAD, y+5, 44, 2.5);
   ctx.restore();
-  y += 28;
+  y += 36 + 10;
 
-  // ── Top 5 rows — NO gaps between rows ──
+  // ── 5 team rows — no gaps, shared borders ──
   const top5 = picks.top5 || [];
   const champ = picks.champion;
-  const ROW_H = 110;
 
   for (let i=0; i<top5.length; i++) {
     const team = TEAMS.find(t=>t.name===top5[i]);
     const isChamp = top5[i]===champ;
-    const ry = y + i * ROW_H;
+    const ry = y + i*ROW_H;
     const midY = ry + ROW_H/2;
+    const isFirst = i===0, isLast = i===top5.length-1;
 
-    // Row background — no gap, share border with adjacent rows
-    const radius = i===0 ? [12,12,0,0] : i===top5.length-1 ? [0,0,12,12] : [0,0,0,0];
+    // Row background
+    const tl = isFirst?12:0, tr = isFirst?12:0, br = isLast?12:0, bl = isLast?12:0;
     ctx.beginPath();
-    ctx.moveTo(PAD+radius[0], ry);
-    ctx.lineTo(PAD+INNER_W-radius[1], ry);
-    ctx.quadraticCurveTo(PAD+INNER_W, ry, PAD+INNER_W, ry+radius[1]);
-    ctx.lineTo(PAD+INNER_W, ry+ROW_H-radius[2]);
-    ctx.quadraticCurveTo(PAD+INNER_W, ry+ROW_H, PAD+INNER_W-radius[2], ry+ROW_H);
-    ctx.lineTo(PAD+radius[3], ry+ROW_H);
-    ctx.quadraticCurveTo(PAD, ry+ROW_H, PAD, ry+ROW_H-radius[3]);
-    ctx.lineTo(PAD, ry+radius[0]);
-    ctx.quadraticCurveTo(PAD, ry, PAD+radius[0], ry);
+    ctx.moveTo(PAD+tl, ry);
+    ctx.lineTo(PAD+INNER_W-tr, ry); ctx.quadraticCurveTo(PAD+INNER_W, ry, PAD+INNER_W, ry+tr);
+    ctx.lineTo(PAD+INNER_W, ry+ROW_H-br); ctx.quadraticCurveTo(PAD+INNER_W, ry+ROW_H, PAD+INNER_W-br, ry+ROW_H);
+    ctx.lineTo(PAD+bl, ry+ROW_H); ctx.quadraticCurveTo(PAD, ry+ROW_H, PAD, ry+ROW_H-bl);
+    ctx.lineTo(PAD, ry+tl); ctx.quadraticCurveTo(PAD, ry, PAD+tl, ry);
     ctx.closePath();
     ctx.fillStyle = isChamp ? "rgba(245,158,11,0.10)" : "rgba(0,0,0,0.04)";
     ctx.fill();
-    ctx.strokeStyle = isChamp ? "rgba(245,158,11,0.5)" : "rgba(0,0,0,0.10)";
+    ctx.strokeStyle = isChamp ? "rgba(245,158,11,0.50)" : "rgba(0,0,0,0.10)";
     ctx.lineWidth = isChamp ? 2 : 1;
     ctx.stroke();
 
-    // Thin separator line between rows (not on last)
-    if (i < top5.length-1 && !isChamp) {
-      ctx.fillStyle = "rgba(0,0,0,0.06)";
+    // Separator line between rows
+    if (!isLast) {
+      ctx.fillStyle = isChamp ? "rgba(245,158,11,0.2)" : "rgba(0,0,0,0.07)";
       ctx.fillRect(PAD+1, ry+ROW_H-1, INNER_W-2, 1);
     }
 
     // Rank
     ctx.save();
-    ctx.font = `600 26px ${F}`;
+    ctx.font = `600 28px ${F}`;
     ctx.fillStyle = isChamp ? "#d97706" : "rgba(0,0,0,0.22)";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText("#"+(i+1), PAD+20, midY);
+    ctx.fillText("#"+(i+1), PAD+22, midY);
     ctx.restore();
 
     // Logo
-    const lsz = 56;
-    const lx = PAD+82, ly = midY-lsz/2;
+    const lsz = 66;
+    const lx = PAD+88, ly = midY-lsz/2;
     if (team) {
       const li = await loadImg(LOGO(team.logo));
       if (li) {
         ctx.save();
         ctx.beginPath();
-        ctx.roundRect(lx, ly, lsz, lsz, 6);
+        ctx.roundRect(lx, ly, lsz, lsz, 8);
         ctx.clip();
         ctx.drawImage(li, lx, ly, lsz, lsz);
         ctx.restore();
@@ -612,26 +619,26 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
 
     // Team name
     ctx.save();
-    ctx.font = `600 28px ${F}`;
+    ctx.font = `600 30px ${F}`;
     ctx.fillStyle = isChamp ? "#92400e" : "#0f172a";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    const PILL_W = 160;
-    const maxNameW = INNER_W - 82 - lsz - 16 - (isChamp ? PILL_W+24 : 20);
+    const PILL_W = 164;
+    const maxNameW = INNER_W - 88 - lsz - 16 - (isChamp ? PILL_W+28 : 24);
     let tname = team?.name || top5[i];
     while (ctx.measureText(tname).width > maxNameW && tname.length>4) tname=tname.slice(0,-1);
     if (tname!==(team?.name||top5[i])) tname+="…";
-    ctx.fillText(tname, lx+lsz+14, midY);
+    ctx.fillText(tname, lx+lsz+16, midY);
     ctx.restore();
 
     // Champion pill
     if (isChamp) {
       ctx.save();
-      const px = PAD+INNER_W-PILL_W-18;
-      const ph = 36;
+      const px = PAD+INNER_W-PILL_W-20;
+      const ph = 38;
       const py = midY-ph/2;
-      rr(px, py, PILL_W, ph, ph/2, "rgba(245,158,11,0.15)", "rgba(245,158,11,0.6)", 1.5);
-      ctx.font = `700 19px ${F}`;
+      rr(px, py, PILL_W, ph, ph/2, "rgba(245,158,11,0.15)", "rgba(245,158,11,0.60)", 1.5);
+      ctx.font = `700 20px ${F}`;
       ctx.fillStyle = "#b45309";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -640,15 +647,14 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     }
   }
 
-  y += top5.length * ROW_H + 24;
+  y += top5.length*ROW_H + 30;
 
   // Divider
-  ctx.fillStyle = "rgba(0,0,0,0.07)";
+  ctx.fillStyle = "rgba(0,0,0,0.08)";
   ctx.fillRect(PAD, y, INNER_W, 1.5);
-  y += 20;
+  y += 16;
 
-  // ── Bottom 4 boxes ──
-  const BOX_H = 108;
+  // ── 4 info boxes ──
   const colW = (INNER_W-14)/2;
 
   const drawBox = async (label, value, colX, bY, findFn) => {
@@ -667,22 +673,23 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     ctx.letterSpacing = "0px";
     ctx.restore();
 
-    // Logo + value centered
-    const lsz = 46;
-    const contentY = midY - lsz/2 + 8;
+    // Logo + value — vertically centered in box
+    const lsz = 48;
+    const lx = colX+14;
+    const ly = midY - lsz/2 + 6;
     if (team) {
       const li = await loadImg(LOGO(team.logo));
       if (li) {
         ctx.save();
         ctx.beginPath();
-        ctx.roundRect(colX+14, contentY, lsz, lsz, 6);
+        ctx.roundRect(lx, ly, lsz, lsz, 6);
         ctx.clip();
-        ctx.drawImage(li, colX+14, contentY, lsz, lsz);
+        ctx.drawImage(li, lx, ly, lsz, lsz);
         ctx.restore();
       }
     }
     ctx.save();
-    ctx.font = `700 26px ${F}`;
+    ctx.font = `700 28px ${F}`;
     ctx.fillStyle = "#0f172a";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
@@ -690,45 +697,44 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     const maxW = colW - (team?lsz+14:0) - 30;
     while (ctx.measureText(val).width > maxW && val.length>3) val=val.slice(0,-1);
     if (val!==(value||"-") && val.length<(value||"-").length) val+="…";
-    ctx.fillText(val, team?colX+14+lsz+10:colX+14, contentY+lsz/2);
+    ctx.fillText(val, team?lx+lsz+10:lx, ly+lsz/2);
     ctx.restore();
   };
 
-  const findPlayer = (n) => TEAMS.find(t=>t.players?.includes(n));
-  const findTeam   = (n) => TEAMS.find(t=>t.name===n);
-  const findIgl    = (n) => TEAMS.find(t=>t.igl===n);
+  const fp = (n) => TEAMS.find(t=>t.players?.includes(n));
+  const ft = (n) => TEAMS.find(t=>t.name===n);
+  const fi = (n) => TEAMS.find(t=>t.igl===n);
 
-  await drawBox("Finals MVP",  picks.finalsMvp?.[0], PAD,         y, findPlayer);
-  await drawBox("Event MVP",   picks.eventMvp?.[0],  PAD+colW+14, y, findPlayer);
-  y += BOX_H + 12;
-  await drawBox("Best IGL",    picks.bestIgl,         PAD,         y, findIgl);
-  await drawBox("Most Kills",  picks.mostFinishes,    PAD+colW+14, y, findTeam);
-  y += BOX_H + 20;
+  await drawBox("Finals MVP",  picks.finalsMvp?.[0], PAD,         y, fp);
+  await drawBox("Event MVP",   picks.eventMvp?.[0],  PAD+colW+14, y, fp);
+  y += BOX_H+12;
+  await drawBox("Best IGL",    picks.bestIgl,         PAD,         y, fi);
+  await drawBox("Most Kills",  picks.mostFinishes,    PAD+colW+14, y, ft);
+  y += BOX_H+20;
 
-  // Score section (only when published)
+  // Score (only when published)
   const hasScore = publishedResults && picks.score != null;
   const hasFantasy = fantasyData && picks.fantasyScore != null;
   if (hasScore || hasFantasy) {
     ctx.fillStyle = "rgba(0,0,0,0.07)";
     ctx.fillRect(PAD, y, INNER_W, 1.5);
-    y += 18;
-    const scoreBoxH = 88;
-    const colW2 = (INNER_W-14)/2;
+    y += 16;
+    const sh = 88;
     if (hasScore && hasFantasy) {
-      rr(PAD, y, colW2, scoreBoxH, 12, "rgba(26,86,219,0.07)", "rgba(26,86,219,0.3)", 1.5);
-      ctx.save(); ctx.font=`500 16px ${F}`; ctx.fillStyle="rgba(26,86,219,0.7)"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.letterSpacing="2px"; ctx.fillText("PREDICTION", PAD+colW2/2, y+26); ctx.letterSpacing="0px"; ctx.restore();
-      ctx.save(); ctx.font=`700 36px ${F}`; ctx.fillStyle="#1a56db"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.fillText(picks.score+" pts", PAD+colW2/2, y+66); ctx.restore();
-      rr(PAD+colW2+14, y, colW2, scoreBoxH, 12, "rgba(124,58,237,0.07)", "rgba(124,58,237,0.3)", 1.5);
-      ctx.save(); ctx.font=`500 16px ${F}`; ctx.fillStyle="rgba(124,58,237,0.7)"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.letterSpacing="2px"; ctx.fillText("FANTASY", PAD+colW2+14+colW2/2, y+26); ctx.letterSpacing="0px"; ctx.restore();
-      ctx.save(); ctx.font=`700 36px ${F}`; ctx.fillStyle="#7c3aed"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.fillText(picks.fantasyScore+" pts", PAD+colW2+14+colW2/2, y+66); ctx.restore();
+      rr(PAD, y, colW, sh, 12, "rgba(26,86,219,0.07)", "rgba(26,86,219,0.3)", 1.5);
+      ctx.save(); ctx.font=`500 16px ${F}`; ctx.fillStyle="rgba(26,86,219,0.7)"; ctx.textAlign="center"; ctx.letterSpacing="2px"; ctx.fillText("PREDICTION", PAD+colW/2, y+26); ctx.letterSpacing="0px"; ctx.restore();
+      ctx.save(); ctx.font=`700 36px ${F}`; ctx.fillStyle="#1a56db"; ctx.textAlign="center"; ctx.fillText(picks.score+" pts", PAD+colW/2, y+66); ctx.restore();
+      rr(PAD+colW+14, y, colW, sh, 12, "rgba(124,58,237,0.07)", "rgba(124,58,237,0.3)", 1.5);
+      ctx.save(); ctx.font=`500 16px ${F}`; ctx.fillStyle="rgba(124,58,237,0.7)"; ctx.textAlign="center"; ctx.letterSpacing="2px"; ctx.fillText("FANTASY", PAD+colW+14+colW/2, y+26); ctx.letterSpacing="0px"; ctx.restore();
+      ctx.save(); ctx.font=`700 36px ${F}`; ctx.fillStyle="#7c3aed"; ctx.textAlign="center"; ctx.fillText(picks.fantasyScore+" pts", PAD+colW+14+colW/2, y+66); ctx.restore();
     } else if (hasScore) {
-      rr(PAD, y, INNER_W, scoreBoxH, 12, "rgba(26,86,219,0.07)", "rgba(26,86,219,0.3)", 1.5);
-      ctx.save(); ctx.font=`500 16px ${F}`; ctx.fillStyle="rgba(26,86,219,0.7)"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.letterSpacing="2px"; ctx.fillText("PREDICTION SCORE", W/2, y+26); ctx.letterSpacing="0px"; ctx.restore();
-      ctx.save(); ctx.font=`700 42px ${F}`; ctx.fillStyle="#1a56db"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.fillText(picks.score+" pts", W/2, y+70); ctx.restore();
+      rr(PAD, y, INNER_W, sh, 12, "rgba(26,86,219,0.07)", "rgba(26,86,219,0.3)", 1.5);
+      ctx.save(); ctx.font=`500 16px ${F}`; ctx.fillStyle="rgba(26,86,219,0.7)"; ctx.textAlign="center"; ctx.letterSpacing="2px"; ctx.fillText("PREDICTION SCORE", W/2, y+26); ctx.letterSpacing="0px"; ctx.restore();
+      ctx.save(); ctx.font=`700 42px ${F}`; ctx.fillStyle="#1a56db"; ctx.textAlign="center"; ctx.fillText(picks.score+" pts", W/2, y+70); ctx.restore();
     }
-    y += scoreBoxH+12;
     if (picks.rank) {
-      ctx.save(); ctx.font=`600 22px ${F}`; ctx.fillStyle="rgba(0,0,0,0.35)"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.fillText("Rank #"+picks.rank+" on Leaderboard", W/2, y+20); ctx.restore();
+      y += sh+10;
+      ctx.save(); ctx.font=`600 22px ${F}`; ctx.fillStyle="rgba(0,0,0,0.35)"; ctx.textAlign="center"; ctx.fillText("Rank #"+picks.rank+" on Leaderboard", W/2, y); ctx.restore();
     }
   }
 
