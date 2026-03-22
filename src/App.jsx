@@ -511,8 +511,8 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
     ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
     ctx.closePath();
-    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
-    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = sw; ctx.stroke(); }
+    if (fill) { ctx.fillStyle=fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle=stroke; ctx.lineWidth=sw; ctx.stroke(); }
   };
 
   // Draw template
@@ -520,147 +520,156 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   if (tmpl) ctx.drawImage(tmpl, 0, 0, W, H);
   else { ctx.fillStyle="#f5f5f5"; ctx.fillRect(0,0,W,H); }
 
-  // ── Username — "by USERNAME" inside box (box center ~y=340) ──
+  // ── Username: just username centered inside the pill box ──
+  // Box is at y≈258-308, center y≈283
   const uname = (identity?.username || "player").toUpperCase();
+  ctx.save();
+  ctx.font = `600 30px ${F}`;
+  ctx.fillStyle = "#1a1a1a";
   ctx.textAlign = "center";
-  ctx.font = `500 26px ${F}`;
-  ctx.fillStyle = "rgba(0,0,0,0.4)";
-  ctx.fillText("by", W/2 - ctx.measureText("by").width/2 - ctx.measureText(" "+uname).width/2 - 6, 348);
-  ctx.font = `700 30px ${F}`;
-  ctx.fillStyle = "#0f172a";
-  const byW = ctx.measureText("by ").width;
-  const unameW = ctx.measureText(uname).width;
-  const totalW = byW + unameW;
-  ctx.font = `500 26px ${F}`;
-  ctx.fillStyle = "rgba(0,0,0,0.4)";
-  ctx.fillText("by", W/2 - totalW/2 + byW/2 - byW/2, 348);
-  ctx.font = `700 30px ${F}`;
-  ctx.fillStyle = "#0f172a";
-  // simpler approach - just print "by USERNAME" centered
-  ctx.font = `600 28px ${F}`;
-  ctx.fillStyle = "rgba(0,0,0,0.45)";
-  ctx.fillText("by", W/2 - ctx.measureText("by " + uname).width/2 + ctx.measureText("by").width/2, 348);
-  ctx.font = `700 32px ${F}`;
-  ctx.fillStyle = "#0f172a";
-  ctx.fillText(uname, W/2 + ctx.measureText("by " + uname).width/2 - ctx.measureText(uname).width/2, 348);
+  ctx.textBaseline = "middle";
+  ctx.fillText(uname, W/2, 283);
+  ctx.restore();
 
-  // ── Layout constants ──
-  const PAD = 72;
+  // ── Layout ──
+  const PAD = 60;
   const INNER_W = W - PAD*2;
-  const CONTENT_TOP = 400;
-  const CONTENT_BOT = 1740;
-  const AVAILABLE = CONTENT_BOT - CONTENT_TOP;
+  let y = 350;
 
-  // Row height: fixed at ~1/3 less than dynamic fill
-  const BOX_H = 110;
-  const BOX_GAP = 12;
-  const ROW_H = 118; // reduced by ~1/3 from previous dynamic value
-  const FIXED_USED = 30 + 22 + 22 + 5*(ROW_H+10) + 2*(BOX_H+BOX_GAP);
-  const EXTRA_PAD = Math.max(0, Math.floor((AVAILABLE - FIXED_USED) / 6));
-  const ROW_GAP = 10 + EXTRA_PAD; // distribute leftover space into gaps
-
-  let y = CONTENT_TOP;
-
-  // ── TOP 5 PICKS label ──
+  // TOP 5 PICKS label
+  ctx.save();
   ctx.font = `600 24px ${F}`;
   ctx.fillStyle = "rgba(0,0,0,0.32)";
   ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
   ctx.letterSpacing = "3px";
   ctx.fillText("TOP 5 PICKS", PAD, y);
   ctx.letterSpacing = "0px";
   ctx.fillStyle = "#1a56db";
   ctx.fillRect(PAD, y+6, 44, 2.5);
-  y += 30;
+  ctx.restore();
+  y += 28;
+
+  // ── Top 5 rows — NO gaps between rows ──
   const top5 = picks.top5 || [];
   const champ = picks.champion;
+  const ROW_H = 110;
 
   for (let i=0; i<top5.length; i++) {
     const team = TEAMS.find(t=>t.name===top5[i]);
     const isChamp = top5[i]===champ;
-    const ry = y + i*(ROW_H+ROW_GAP);
+    const ry = y + i * ROW_H;
     const midY = ry + ROW_H/2;
 
-    rr(PAD, ry, INNER_W, ROW_H, 12,
-      isChamp?"rgba(245,158,11,0.1)":"rgba(0,0,0,0.04)",
-      isChamp?"rgba(245,158,11,0.45)":"rgba(0,0,0,0.09)",
-      isChamp?2.5:1.5
-    );
+    // Row background — no gap, share border with adjacent rows
+    const radius = i===0 ? [12,12,0,0] : i===top5.length-1 ? [0,0,12,12] : [0,0,0,0];
+    ctx.beginPath();
+    ctx.moveTo(PAD+radius[0], ry);
+    ctx.lineTo(PAD+INNER_W-radius[1], ry);
+    ctx.quadraticCurveTo(PAD+INNER_W, ry, PAD+INNER_W, ry+radius[1]);
+    ctx.lineTo(PAD+INNER_W, ry+ROW_H-radius[2]);
+    ctx.quadraticCurveTo(PAD+INNER_W, ry+ROW_H, PAD+INNER_W-radius[2], ry+ROW_H);
+    ctx.lineTo(PAD+radius[3], ry+ROW_H);
+    ctx.quadraticCurveTo(PAD, ry+ROW_H, PAD, ry+ROW_H-radius[3]);
+    ctx.lineTo(PAD, ry+radius[0]);
+    ctx.quadraticCurveTo(PAD, ry, PAD+radius[0], ry);
+    ctx.closePath();
+    ctx.fillStyle = isChamp ? "rgba(245,158,11,0.10)" : "rgba(0,0,0,0.04)";
+    ctx.fill();
+    ctx.strokeStyle = isChamp ? "rgba(245,158,11,0.5)" : "rgba(0,0,0,0.10)";
+    ctx.lineWidth = isChamp ? 2 : 1;
+    ctx.stroke();
+
+    // Thin separator line between rows (not on last)
+    if (i < top5.length-1 && !isChamp) {
+      ctx.fillStyle = "rgba(0,0,0,0.06)";
+      ctx.fillRect(PAD+1, ry+ROW_H-1, INNER_W-2, 1);
+    }
 
     // Rank
-    ctx.font = `600 28px ${F}`;
-    ctx.fillStyle = isChamp?"#d97706":"rgba(0,0,0,0.2)";
+    ctx.save();
+    ctx.font = `600 26px ${F}`;
+    ctx.fillStyle = isChamp ? "#d97706" : "rgba(0,0,0,0.22)";
     ctx.textAlign = "left";
-    ctx.fillText("#"+(i+1), PAD+22, midY+10);
+    ctx.textBaseline = "middle";
+    ctx.fillText("#"+(i+1), PAD+20, midY);
+    ctx.restore();
 
     // Logo
-    const lsz = 58;
-    const lx = PAD+88, ly = midY-lsz/2;
+    const lsz = 56;
+    const lx = PAD+82, ly = midY-lsz/2;
     if (team) {
       const li = await loadImg(LOGO(team.logo));
       if (li) {
         ctx.save();
         ctx.beginPath();
-        ctx.roundRect(lx,ly,lsz,lsz,7);
+        ctx.roundRect(lx, ly, lsz, lsz, 6);
         ctx.clip();
-        ctx.drawImage(li,lx,ly,lsz,lsz);
+        ctx.drawImage(li, lx, ly, lsz, lsz);
         ctx.restore();
       }
     }
 
     // Team name
+    ctx.save();
     ctx.font = `600 28px ${F}`;
-    ctx.fillStyle = isChamp?"#92400e":"#0f172a";
+    ctx.fillStyle = isChamp ? "#92400e" : "#0f172a";
     ctx.textAlign = "left";
-    // Champion pill width for max name calc
-    const PILL_W = 158; // fixed smaller pill width
-    const PILL_PAD = 26; // right gap before border
-    const maxNameW = INNER_W - 88 - lsz - 18 - (isChamp ? PILL_W+PILL_PAD+8 : 20);
+    ctx.textBaseline = "middle";
+    const PILL_W = 160;
+    const maxNameW = INNER_W - 82 - lsz - 16 - (isChamp ? PILL_W+24 : 20);
     let tname = team?.name || top5[i];
     while (ctx.measureText(tname).width > maxNameW && tname.length>4) tname=tname.slice(0,-1);
     if (tname!==(team?.name||top5[i])) tname+="…";
-    ctx.fillText(tname, lx+lsz+16, midY+10);
+    ctx.fillText(tname, lx+lsz+14, midY);
+    ctx.restore();
 
-    // Champion pill — fixed size, not hugging border
+    // Champion pill
     if (isChamp) {
-      const px = PAD + INNER_W - PILL_W - PILL_PAD;
-      const ph = 38;
-      const py = midY - ph/2;
-      rr(px, py, PILL_W, ph, ph/2, "rgba(245,158,11,0.15)", "rgba(245,158,11,0.55)", 1.5);
-      ctx.font = `700 20px ${F}`;
+      ctx.save();
+      const px = PAD+INNER_W-PILL_W-18;
+      const ph = 36;
+      const py = midY-ph/2;
+      rr(px, py, PILL_W, ph, ph/2, "rgba(245,158,11,0.15)", "rgba(245,158,11,0.6)", 1.5);
+      ctx.font = `700 19px ${F}`;
       ctx.fillStyle = "#b45309";
       ctx.textAlign = "center";
-      ctx.fillText("★  CHAMPION", px+PILL_W/2, py+ph/2+7);
+      ctx.textBaseline = "middle";
+      ctx.fillText("★  CHAMPION", px+PILL_W/2, midY);
+      ctx.restore();
     }
   }
 
-  y += top5.length*(ROW_H+ROW_GAP) + 20;
+  y += top5.length * ROW_H + 24;
 
-  // ── Divider ──
+  // Divider
   ctx.fillStyle = "rgba(0,0,0,0.07)";
   ctx.fillRect(PAD, y, INNER_W, 1.5);
-  y += 22;
+  y += 20;
 
-  // ── Bottom 4 boxes — center aligned, no team name, reduced height ──
-  const colW = (INNER_W-16)/2;
+  // ── Bottom 4 boxes ──
+  const BOX_H = 108;
+  const colW = (INNER_W-14)/2;
 
   const drawBox = async (label, value, colX, bY, findFn) => {
     const team = findFn ? findFn(value) : null;
-    rr(colX, bY, colW, BOX_H, 12, "rgba(0,0,0,0.04)", "rgba(0,0,0,0.08)", 1.5);
+    rr(colX, bY, colW, BOX_H, 12, "rgba(0,0,0,0.04)", "rgba(0,0,0,0.09)", 1.5);
     const midY = bY + BOX_H/2;
 
-    // Label — top aligned
-    ctx.font = `500 18px ${F}`;
+    // Label
+    ctx.save();
+    ctx.font = `500 17px ${F}`;
     ctx.fillStyle = "rgba(0,0,0,0.36)";
     ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
     ctx.letterSpacing = "2px";
     ctx.fillText(label.toUpperCase(), colX+14, bY+24);
     ctx.letterSpacing = "0px";
+    ctx.restore();
 
-    // Logo + value — vertically centered
-    const lsz = 48;
-    const contentH = lsz;
-    const contentY = midY - contentH/2 + 6; // slight down offset for label
-
+    // Logo + value centered
+    const lsz = 46;
+    const contentY = midY - lsz/2 + 8;
     if (team) {
       const li = await loadImg(LOGO(team.logo));
       if (li) {
@@ -672,84 +681,54 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
         ctx.restore();
       }
     }
-
+    ctx.save();
     ctx.font = `700 26px ${F}`;
     ctx.fillStyle = "#0f172a";
     ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
     let val = value || "-";
-    const maxW = colW - (team?lsz+14:0) - 28;
+    const maxW = colW - (team?lsz+14:0) - 30;
     while (ctx.measureText(val).width > maxW && val.length>3) val=val.slice(0,-1);
     if (val!==(value||"-") && val.length<(value||"-").length) val+="…";
-    const tx = team ? colX+14+lsz+10 : colX+14;
-    ctx.fillText(val, tx, contentY+lsz/2+9);
+    ctx.fillText(val, team?colX+14+lsz+10:colX+14, contentY+lsz/2);
+    ctx.restore();
   };
 
   const findPlayer = (n) => TEAMS.find(t=>t.players?.includes(n));
   const findTeam   = (n) => TEAMS.find(t=>t.name===n);
   const findIgl    = (n) => TEAMS.find(t=>t.igl===n);
 
-  await drawBox("Finals MVP",  picks.finalsMvp?.[0], PAD,          y, findPlayer);
-  await drawBox("Event MVP",   picks.eventMvp?.[0],  PAD+colW+16,  y, findPlayer);
+  await drawBox("Finals MVP",  picks.finalsMvp?.[0], PAD,         y, findPlayer);
+  await drawBox("Event MVP",   picks.eventMvp?.[0],  PAD+colW+14, y, findPlayer);
   y += BOX_H + 12;
-
-  await drawBox("Best IGL",    picks.bestIgl,         PAD,          y, findIgl);
-  await drawBox("Most Kills",  picks.mostFinishes,    PAD+colW+16,  y, findTeam);
+  await drawBox("Best IGL",    picks.bestIgl,         PAD,         y, findIgl);
+  await drawBox("Most Kills",  picks.mostFinishes,    PAD+colW+14, y, findTeam);
   y += BOX_H + 20;
 
-  // ── Rank & Score section ──
+  // Score section (only when published)
   const hasScore = publishedResults && picks.score != null;
   const hasFantasy = fantasyData && picks.fantasyScore != null;
-
   if (hasScore || hasFantasy) {
     ctx.fillStyle = "rgba(0,0,0,0.07)";
     ctx.fillRect(PAD, y, INNER_W, 1.5);
     y += 18;
-
-    // Two score boxes side by side if both, single wide if only one
     const scoreBoxH = 88;
+    const colW2 = (INNER_W-14)/2;
     if (hasScore && hasFantasy) {
-      // Prediction score
-      rr(PAD, y, colW, scoreBoxH, 12, "rgba(26,86,219,0.07)", "rgba(26,86,219,0.3)", 1.5);
-      ctx.font = `500 17px ${F}`;
-      ctx.fillStyle = "rgba(26,86,219,0.7)";
-      ctx.textAlign = "center";
-      ctx.letterSpacing = "2px";
-      ctx.fillText("PREDICTION", PAD+colW/2, y+26);
-      ctx.letterSpacing = "0px";
-      ctx.font = `700 38px ${F}`;
-      ctx.fillStyle = "#1a56db";
-      ctx.fillText(picks.score+" pts", PAD+colW/2, y+68);
-      // Fantasy score
-      rr(PAD+colW+16, y, colW, scoreBoxH, 12, "rgba(124,58,237,0.07)", "rgba(124,58,237,0.3)", 1.5);
-      ctx.font = `500 17px ${F}`;
-      ctx.fillStyle = "rgba(124,58,237,0.7)";
-      ctx.textAlign = "center";
-      ctx.letterSpacing = "2px";
-      ctx.fillText("FANTASY", PAD+colW+16+colW/2, y+26);
-      ctx.letterSpacing = "0px";
-      ctx.font = `700 38px ${F}`;
-      ctx.fillStyle = "#7c3aed";
-      ctx.fillText(picks.fantasyScore+" pts", PAD+colW+16+colW/2, y+68);
+      rr(PAD, y, colW2, scoreBoxH, 12, "rgba(26,86,219,0.07)", "rgba(26,86,219,0.3)", 1.5);
+      ctx.save(); ctx.font=`500 16px ${F}`; ctx.fillStyle="rgba(26,86,219,0.7)"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.letterSpacing="2px"; ctx.fillText("PREDICTION", PAD+colW2/2, y+26); ctx.letterSpacing="0px"; ctx.restore();
+      ctx.save(); ctx.font=`700 36px ${F}`; ctx.fillStyle="#1a56db"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.fillText(picks.score+" pts", PAD+colW2/2, y+66); ctx.restore();
+      rr(PAD+colW2+14, y, colW2, scoreBoxH, 12, "rgba(124,58,237,0.07)", "rgba(124,58,237,0.3)", 1.5);
+      ctx.save(); ctx.font=`500 16px ${F}`; ctx.fillStyle="rgba(124,58,237,0.7)"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.letterSpacing="2px"; ctx.fillText("FANTASY", PAD+colW2+14+colW2/2, y+26); ctx.letterSpacing="0px"; ctx.restore();
+      ctx.save(); ctx.font=`700 36px ${F}`; ctx.fillStyle="#7c3aed"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.fillText(picks.fantasyScore+" pts", PAD+colW2+14+colW2/2, y+66); ctx.restore();
     } else if (hasScore) {
       rr(PAD, y, INNER_W, scoreBoxH, 12, "rgba(26,86,219,0.07)", "rgba(26,86,219,0.3)", 1.5);
-      ctx.font = `500 17px ${F}`;
-      ctx.fillStyle = "rgba(26,86,219,0.7)";
-      ctx.textAlign = "center";
-      ctx.letterSpacing = "2px";
-      ctx.fillText("PREDICTION SCORE", W/2, y+26);
-      ctx.letterSpacing = "0px";
-      ctx.font = `700 42px ${F}`;
-      ctx.fillStyle = "#1a56db";
-      ctx.fillText(picks.score+" pts", W/2, y+70);
+      ctx.save(); ctx.font=`500 16px ${F}`; ctx.fillStyle="rgba(26,86,219,0.7)"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.letterSpacing="2px"; ctx.fillText("PREDICTION SCORE", W/2, y+26); ctx.letterSpacing="0px"; ctx.restore();
+      ctx.save(); ctx.font=`700 42px ${F}`; ctx.fillStyle="#1a56db"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.fillText(picks.score+" pts", W/2, y+70); ctx.restore();
     }
-    y += scoreBoxH + 12;
-
-    // Leaderboard rank if available
+    y += scoreBoxH+12;
     if (picks.rank) {
-      ctx.font = `600 22px ${F}`;
-      ctx.fillStyle = "rgba(0,0,0,0.35)";
-      ctx.textAlign = "center";
-      ctx.fillText("Rank #"+picks.rank+" on Leaderboard", W/2, y+20);
+      ctx.save(); ctx.font=`600 22px ${F}`; ctx.fillStyle="rgba(0,0,0,0.35)"; ctx.textAlign="center"; ctx.textBaseline="alphabetic"; ctx.fillText("Rank #"+picks.rank+" on Leaderboard", W/2, y+20); ctx.restore();
     }
   }
 
