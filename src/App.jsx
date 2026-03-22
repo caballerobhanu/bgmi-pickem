@@ -486,17 +486,15 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
-  // Load Archivo font
   try {
-    const font = new FontFace("Archivo", "url(https://fonts.gstatic.com/s/archivo/v19/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q.woff2)", { weight: "600" });
-    await font.load();
-    document.fonts.add(font);
-    const fontMed = new FontFace("Archivo", "url(https://fonts.gstatic.com/s/archivo/v19/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q.woff2)", { weight: "500" });
-    await fontMed.load();
-    document.fonts.add(fontMed);
+    const f1 = new FontFace("Archivo", "url(https://fonts.gstatic.com/s/archivo/v19/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q.woff2)", { weight: "600" });
+    const f2 = new FontFace("Archivo", "url(https://fonts.gstatic.com/s/archivo/v19/k3kPo8UDI-1M0wlSdV9XAw6lQkqWY8Q.woff2)", { weight: "500" });
+    await Promise.all([f1.load(), f2.load()]);
+    document.fonts.add(f1); document.fonts.add(f2);
   } catch {}
 
-  // Helper: load image
+  const F = "Archivo, Inter, sans-serif";
+
   const loadImg = (src) => new Promise((res) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -505,8 +503,7 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     img.src = src;
   });
 
-  // Helper: rounded rect
-  const roundRect = (x,y,w,h,r,fill,stroke,strokeW=2) => {
+  const rr = (x,y,w,h,r,fill,stroke,sw=1.5) => {
     ctx.beginPath();
     ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
     ctx.quadraticCurveTo(x+w,y,x+w,y+r);
@@ -515,199 +512,241 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
     ctx.closePath();
     if (fill) { ctx.fillStyle = fill; ctx.fill(); }
-    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = strokeW; ctx.stroke(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = sw; ctx.stroke(); }
   };
 
-  // ── Draw template ──
-  const template = await loadImg("/logos/story.png");
-  if (template) {
-    ctx.drawImage(template, 0, 0, W, H);
-  } else {
-    ctx.fillStyle = "#f5f5f5";
-    ctx.fillRect(0, 0, W, H);
-  }
+  // Draw template
+  const tmpl = await loadImg("/logos/story.png");
+  if (tmpl) ctx.drawImage(tmpl, 0, 0, W, H);
+  else { ctx.fillStyle="#f5f5f5"; ctx.fillRect(0,0,W,H); }
 
-  // ── Username — drawn centered inside the box (box center: x=536, y=298) ──
-  const username = (identity?.username || "player").toUpperCase();
-  ctx.font = "600 22px Archivo, Inter, sans-serif";
-  ctx.fillStyle = "#1a1a1a";
+  // ── Username — "by USERNAME" inside box (box center ~y=340) ──
+  const uname = (identity?.username || "player").toUpperCase();
   ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(username, 536, 298);
-  ctx.textBaseline = "alphabetic";
+  ctx.font = `500 26px ${F}`;
+  ctx.fillStyle = "rgba(0,0,0,0.4)";
+  ctx.fillText("by", W/2 - ctx.measureText("by").width/2 - ctx.measureText(" "+uname).width/2 - 6, 348);
+  ctx.font = `700 30px ${F}`;
+  ctx.fillStyle = "#0f172a";
+  const byW = ctx.measureText("by ").width;
+  const unameW = ctx.measureText(uname).width;
+  const totalW = byW + unameW;
+  ctx.font = `500 26px ${F}`;
+  ctx.fillStyle = "rgba(0,0,0,0.4)";
+  ctx.fillText("by", W/2 - totalW/2 + byW/2 - byW/2, 348);
+  ctx.font = `700 30px ${F}`;
+  ctx.fillStyle = "#0f172a";
+  // simpler approach - just print "by USERNAME" centered
+  ctx.font = `600 28px ${F}`;
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.fillText("by", W/2 - ctx.measureText("by " + uname).width/2 + ctx.measureText("by").width/2, 348);
+  ctx.font = `700 32px ${F}`;
+  ctx.fillStyle = "#0f172a";
+  ctx.fillText(uname, W/2 + ctx.measureText("by " + uname).width/2 - ctx.measureText(uname).width/2, 348);
 
-  // ── Content zone: y=420 to y=1740 ──
-  let y = 435;
-  const PAD = 58;
-  const ROW_H = 165;
+  // ── Layout constants ──
+  const PAD = 72;
+  const INNER_W = W - PAD*2;
+  let y = 400;
 
-  // ── TOP 5 label ──
-  ctx.font = "600 26px Archivo, Inter, sans-serif";
-  ctx.fillStyle = "rgba(0,0,0,0.38)";
+  // ── TOP 5 PICKS label ──
+  ctx.font = `600 24px ${F}`;
+  ctx.fillStyle = "rgba(0,0,0,0.32)";
   ctx.textAlign = "left";
+  ctx.letterSpacing = "3px";
   ctx.fillText("TOP 5 PICKS", PAD, y);
+  ctx.letterSpacing = "0px";
   ctx.fillStyle = "#1a56db";
-  ctx.fillRect(PAD, y+7, 48, 3);
-  y += 34;
+  ctx.fillRect(PAD, y+6, 44, 2.5);
+  y += 30;
 
-  // ── Top 5 rows ──
+  const ROW_H = 100; // reduced 25%
+  const ROW_GAP = 8;
   const top5 = picks.top5 || [];
   const champ = picks.champion;
 
-  for (let i = 0; i < top5.length; i++) {
-    const team = TEAMS.find(t => t.name === top5[i]);
-    const isChamp = top5[i] === champ;
-    const rowY = y + i * ROW_H;
+  for (let i=0; i<top5.length; i++) {
+    const team = TEAMS.find(t=>t.name===top5[i]);
+    const isChamp = top5[i]===champ;
+    const ry = y + i*(ROW_H+ROW_GAP);
+    const midY = ry + ROW_H/2;
 
-    roundRect(PAD, rowY, W-PAD*2, ROW_H-14, 16,
-      isChamp ? "rgba(245,158,11,0.1)" : "rgba(0,0,0,0.04)",
-      isChamp ? "rgba(245,158,11,0.5)" : "rgba(0,0,0,0.1)",
-      isChamp ? 3 : 1.5
+    rr(PAD, ry, INNER_W, ROW_H, 12,
+      isChamp?"rgba(245,158,11,0.1)":"rgba(0,0,0,0.04)",
+      isChamp?"rgba(245,158,11,0.45)":"rgba(0,0,0,0.09)",
+      isChamp?2.5:1.5
     );
 
     // Rank
-    ctx.font = "600 36px Archivo, sans-serif";
-    ctx.fillStyle = isChamp ? "#d97706" : "rgba(0,0,0,0.22)";
+    ctx.font = `600 28px ${F}`;
+    ctx.fillStyle = isChamp?"#d97706":"rgba(0,0,0,0.2)";
     ctx.textAlign = "left";
-    ctx.fillText("#"+(i+1), PAD+14, rowY + (ROW_H-14)/2 + 12);
+    ctx.fillText("#"+(i+1), PAD+22, midY+10);
 
     // Logo
-    const logoSize = 82;
-    const logoX = PAD + 88;
-    const logoY = rowY + (ROW_H-14)/2 - logoSize/2;
+    const lsz = 58;
+    const lx = PAD+88, ly = midY-lsz/2;
     if (team) {
-      const logoImg = await loadImg(LOGO(team.logo));
-      if (logoImg) {
+      const li = await loadImg(LOGO(team.logo));
+      if (li) {
         ctx.save();
         ctx.beginPath();
-        ctx.roundRect(logoX, logoY, logoSize, logoSize, 10);
+        ctx.roundRect(lx,ly,lsz,lsz,7);
         ctx.clip();
-        ctx.drawImage(logoImg, logoX, logoY, logoSize, logoSize);
+        ctx.drawImage(li,lx,ly,lsz,lsz);
         ctx.restore();
       }
     }
 
     // Team name
-    const nameFont = `${isChamp?"600":"500"} 36px Archivo, sans-serif`;
-    ctx.font = nameFont;
-    ctx.fillStyle = isChamp ? "#92400e" : "#0f172a";
+    ctx.font = `600 28px ${F}`;
+    ctx.fillStyle = isChamp?"#92400e":"#0f172a";
     ctx.textAlign = "left";
-    let teamName = team?.name || top5[i];
-    const maxNameW = isChamp ? W - PAD*2 - logoSize - 88 - 200 : W - PAD*2 - logoSize - 88 - 40;
-    while (ctx.measureText(teamName).width > maxNameW && teamName.length > 4) teamName = teamName.slice(0,-1);
-    if (teamName !== (team?.name || top5[i])) teamName += "…";
-    ctx.fillText(teamName, logoX + logoSize + 18, rowY + (ROW_H-14)/2 + 13);
+    // Champion pill width for max name calc
+    const PILL_W = 158; // fixed smaller pill width
+    const PILL_PAD = 26; // right gap before border
+    const maxNameW = INNER_W - 88 - lsz - 18 - (isChamp ? PILL_W+PILL_PAD+8 : 20);
+    let tname = team?.name || top5[i];
+    while (ctx.measureText(tname).width > maxNameW && tname.length>4) tname=tname.slice(0,-1);
+    if (tname!==(team?.name||top5[i])) tname+="…";
+    ctx.fillText(tname, lx+lsz+16, midY+10);
 
-    // Champion pill — sized to content
+    // Champion pill — fixed size, not hugging border
     if (isChamp) {
-      const pillText = "★ CHAMPION";
-      ctx.font = "600 24px Archivo, sans-serif";
-      const pillTextW = ctx.measureText(pillText).width;
-      const pillPadX = 28, pillH = 52, pillR = 26;
-      const pillW = pillTextW + pillPadX * 2;
-      const pillX = W - PAD - pillW;
-      const pillY = rowY + (ROW_H-14)/2 - pillH/2;
-      roundRect(pillX, pillY, pillW, pillH, pillR, "rgba(245,158,11,0.15)", "rgba(245,158,11,0.6)", 2);
+      const px = PAD + INNER_W - PILL_W - PILL_PAD;
+      const ph = 38;
+      const py = midY - ph/2;
+      rr(px, py, PILL_W, ph, ph/2, "rgba(245,158,11,0.15)", "rgba(245,158,11,0.55)", 1.5);
+      ctx.font = `700 20px ${F}`;
       ctx.fillStyle = "#b45309";
       ctx.textAlign = "center";
-      ctx.fillText(pillText, pillX + pillW/2, pillY + pillH/2 + 9);
+      ctx.fillText("★  CHAMPION", px+PILL_W/2, py+ph/2+7);
     }
   }
 
-  y += top5.length * ROW_H + 22;
+  y += top5.length*(ROW_H+ROW_GAP) + 20;
 
   // ── Divider ──
-  ctx.fillStyle = "rgba(0,0,0,0.08)";
-  ctx.fillRect(PAD, y, W-PAD*2, 1.5);
-  y += 26;
+  ctx.fillStyle = "rgba(0,0,0,0.07)";
+  ctx.fillRect(PAD, y, INNER_W, 1.5);
+  y += 22;
 
-  // ── MVP label ──
-  ctx.font = "600 26px Archivo, sans-serif";
-  const colW = (W - PAD*2 - 20) / 2;
+  // ── Bottom 4 boxes — center aligned, no team name, reduced height ──
+  const BOX_H = 104;
+  const colW = (INNER_W-16)/2;
 
-  const drawMvpBox = async (label, playerName, colX, bY) => {
-    const team = TEAMS.find(t => t.players?.includes(playerName));
-    roundRect(colX, bY, colW, 148, 14, "rgba(0,0,0,0.04)", "rgba(0,0,0,0.08)", 1.5);
-    ctx.font = "500 20px Archivo, sans-serif";
-    ctx.fillStyle = "rgba(0,0,0,0.4)";
+  const drawBox = async (label, value, colX, bY, findFn) => {
+    const team = findFn ? findFn(value) : null;
+    rr(colX, bY, colW, BOX_H, 12, "rgba(0,0,0,0.04)", "rgba(0,0,0,0.08)", 1.5);
+    const midY = bY + BOX_H/2;
+
+    // Label — top aligned
+    ctx.font = `500 18px ${F}`;
+    ctx.fillStyle = "rgba(0,0,0,0.36)";
     ctx.textAlign = "left";
-    ctx.fillText(label.toUpperCase(), colX+14, bY+28);
+    ctx.letterSpacing = "2px";
+    ctx.fillText(label.toUpperCase(), colX+14, bY+24);
+    ctx.letterSpacing = "0px";
+
+    // Logo + value — vertically centered
+    const lsz = 48;
+    const contentH = lsz;
+    const contentY = midY - contentH/2 + 6; // slight down offset for label
+
     if (team) {
       const li = await loadImg(LOGO(team.logo));
       if (li) {
         ctx.save();
         ctx.beginPath();
-        ctx.roundRect(colX+14, bY+42, 58, 58, 8);
+        ctx.roundRect(colX+14, contentY, lsz, lsz, 6);
         ctx.clip();
-        ctx.drawImage(li, colX+14, bY+42, 58, 58);
+        ctx.drawImage(li, colX+14, contentY, lsz, lsz);
         ctx.restore();
       }
     }
-    ctx.font = "600 30px Archivo, sans-serif";
+
+    ctx.font = `700 26px ${F}`;
     ctx.fillStyle = "#0f172a";
     ctx.textAlign = "left";
-    let pname = playerName || "-";
-    while (ctx.measureText(pname).width > colW - 92 && pname.length > 3) pname = pname.slice(0,-1);
-    ctx.fillText(pname, colX + 82, bY + 76);
-    if (team) {
-      ctx.font = "500 20px Archivo, sans-serif";
-      ctx.fillStyle = "rgba(0,0,0,0.38)";
-      ctx.fillText(SHORT[team.name] || team.name.split(" ")[0], colX + 82, bY + 108);
-    }
-  };
-
-  await drawMvpBox("Finals MVP", picks.finalsMvp?.[0], PAD, y);
-  await drawMvpBox("Event MVP", picks.eventMvp?.[0], PAD + colW + 20, y);
-  y += 166;
-
-  // ── IGL + Kills ──
-  const drawInfoBox = async (label, value, colX, bY) => {
-    const team = TEAMS.find(t => t.name === value || t.igl === value);
-    roundRect(colX, bY, colW, 140, 14, "rgba(0,0,0,0.04)", "rgba(0,0,0,0.08)", 1.5);
-    ctx.font = "500 20px Archivo, sans-serif";
-    ctx.fillStyle = "rgba(0,0,0,0.4)";
-    ctx.textAlign = "left";
-    ctx.fillText(label.toUpperCase(), colX+14, bY+28);
-    if (team) {
-      const li = await loadImg(LOGO(team.logo));
-      if (li) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.roundRect(colX+14, bY+42, 58, 58, 8);
-        ctx.clip();
-        ctx.drawImage(li, colX+14, bY+42, 58, 58);
-        ctx.restore();
-      }
-    }
-    ctx.font = "600 28px Archivo, sans-serif";
-    ctx.fillStyle = "#0f172a";
     let val = value || "-";
-    while (ctx.measureText(val).width > colW - 92 && val.length > 3) val = val.slice(0,-1);
-    ctx.fillText(val, colX + 82, bY + 76);
+    const maxW = colW - (team?lsz+14:0) - 28;
+    while (ctx.measureText(val).width > maxW && val.length>3) val=val.slice(0,-1);
+    if (val!==(value||"-") && val.length<(value||"-").length) val+="…";
+    const tx = team ? colX+14+lsz+10 : colX+14;
+    ctx.fillText(val, tx, contentY+lsz/2+9);
   };
 
-  await drawInfoBox("Best IGL", picks.bestIgl, PAD, y);
-  await drawInfoBox("Most Kills", picks.mostFinishes, PAD + colW + 20, y);
-  y += 158;
+  const findPlayer = (n) => TEAMS.find(t=>t.players?.includes(n));
+  const findTeam   = (n) => TEAMS.find(t=>t.name===n);
+  const findIgl    = (n) => TEAMS.find(t=>t.igl===n);
 
-  // ── Score badge ──
-  if (publishedResults && picks.score != null) {
-    ctx.fillStyle = "rgba(0,0,0,0.08)";
-    ctx.fillRect(PAD, y, W-PAD*2, 1.5);
-    y += 20;
-    roundRect(W/2-170, y, 340, 92, 16, "rgba(26,86,219,0.08)", "rgba(26,86,219,0.35)", 2);
-    ctx.font = "500 20px Archivo, sans-serif";
-    ctx.fillStyle = "rgba(26,86,219,0.7)";
-    ctx.textAlign = "center";
-    ctx.fillText("PREDICTION SCORE", W/2, y+30);
-    ctx.font = "600 50px Archivo, sans-serif";
-    ctx.fillStyle = "#1a56db";
-    ctx.fillText((picks.score || 0)+" pts", W/2, y+76);
+  await drawBox("Finals MVP",  picks.finalsMvp?.[0], PAD,          y, findPlayer);
+  await drawBox("Event MVP",   picks.eventMvp?.[0],  PAD+colW+16,  y, findPlayer);
+  y += BOX_H + 12;
+
+  await drawBox("Best IGL",    picks.bestIgl,         PAD,          y, findIgl);
+  await drawBox("Most Kills",  picks.mostFinishes,    PAD+colW+16,  y, findTeam);
+  y += BOX_H + 20;
+
+  // ── Rank & Score section ──
+  const hasScore = publishedResults && picks.score != null;
+  const hasFantasy = fantasyData && picks.fantasyScore != null;
+
+  if (hasScore || hasFantasy) {
+    ctx.fillStyle = "rgba(0,0,0,0.07)";
+    ctx.fillRect(PAD, y, INNER_W, 1.5);
+    y += 18;
+
+    // Two score boxes side by side if both, single wide if only one
+    const scoreBoxH = 88;
+    if (hasScore && hasFantasy) {
+      // Prediction score
+      rr(PAD, y, colW, scoreBoxH, 12, "rgba(26,86,219,0.07)", "rgba(26,86,219,0.3)", 1.5);
+      ctx.font = `500 17px ${F}`;
+      ctx.fillStyle = "rgba(26,86,219,0.7)";
+      ctx.textAlign = "center";
+      ctx.letterSpacing = "2px";
+      ctx.fillText("PREDICTION", PAD+colW/2, y+26);
+      ctx.letterSpacing = "0px";
+      ctx.font = `700 38px ${F}`;
+      ctx.fillStyle = "#1a56db";
+      ctx.fillText(picks.score+" pts", PAD+colW/2, y+68);
+      // Fantasy score
+      rr(PAD+colW+16, y, colW, scoreBoxH, 12, "rgba(124,58,237,0.07)", "rgba(124,58,237,0.3)", 1.5);
+      ctx.font = `500 17px ${F}`;
+      ctx.fillStyle = "rgba(124,58,237,0.7)";
+      ctx.textAlign = "center";
+      ctx.letterSpacing = "2px";
+      ctx.fillText("FANTASY", PAD+colW+16+colW/2, y+26);
+      ctx.letterSpacing = "0px";
+      ctx.font = `700 38px ${F}`;
+      ctx.fillStyle = "#7c3aed";
+      ctx.fillText(picks.fantasyScore+" pts", PAD+colW+16+colW/2, y+68);
+    } else if (hasScore) {
+      rr(PAD, y, INNER_W, scoreBoxH, 12, "rgba(26,86,219,0.07)", "rgba(26,86,219,0.3)", 1.5);
+      ctx.font = `500 17px ${F}`;
+      ctx.fillStyle = "rgba(26,86,219,0.7)";
+      ctx.textAlign = "center";
+      ctx.letterSpacing = "2px";
+      ctx.fillText("PREDICTION SCORE", W/2, y+26);
+      ctx.letterSpacing = "0px";
+      ctx.font = `700 42px ${F}`;
+      ctx.fillStyle = "#1a56db";
+      ctx.fillText(picks.score+" pts", W/2, y+70);
+    }
+    y += scoreBoxH + 12;
+
+    // Leaderboard rank if available
+    if (picks.rank) {
+      ctx.font = `600 22px ${F}`;
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.textAlign = "center";
+      ctx.fillText("Rank #"+picks.rank+" on Leaderboard", W/2, y+20);
+    }
   }
 
   return canvas;
 }
-
 
 function ShareButtons({ picks, publishedResults, fantasyData, identity }) {
   const [generating, setGenerating] = useState(false);
@@ -1508,7 +1547,12 @@ export default function App() {
                       <div style={{color:"#64748b",fontSize:13,marginBottom:14}}>{identity.username} · BGIS 2026 Grand Finals</div>
                       <button className="btn btn-outline" onClick={()=>setSubmitted(false)}>Edit Picks</button>
                     </div>
-                    <ShareButtons picks={mySubmission||{top5,champion,finalsMvp,eventMvp,bestIgl,mostFinishes}} publishedResults={publishedResults} fantasyData={fantasyData} identity={identity}/>
+                    {(() => {
+                      const myEntry = scoredLb?.find(s=>s.username===identity?.username);
+                      const rank = myEntry ? scoredLb.indexOf(myEntry)+1 : null;
+                      const picksWithScore = {...(mySubmission||{top5,champion,finalsMvp,eventMvp,bestIgl,mostFinishes}), score: myEntry?.score??null, fantasyScore: myEntry?.fantasyScore??null, rank};
+                      return <ShareButtons picks={picksWithScore} publishedResults={publishedResults} fantasyData={fantasyData} identity={identity}/>;
+                    })()}
                   </div>
                 )}
 
@@ -1661,7 +1705,12 @@ export default function App() {
                     <div><div className="sec-label">Most Kills</div><span className={`chip${publishedResults&&mySubmission.mostFinishes===publishedResults.mostFinishes?" correct":""}`}>{mySubmission.mostFinishes}</span></div>
                   </div>
                   {!closed&&<div style={{marginTop:14}}><button className="btn btn-outline" onClick={()=>{setSubmitted(false);setTab("picks");}}>✏️ Edit Picks</button></div>}
-                  <ShareButtons picks={{...mySubmission, score: publishedResults ? calcPredictionScore(mySubmission, publishedResults) : null}} publishedResults={publishedResults} fantasyData={fantasyData} identity={identity}/>
+                  {(() => {
+                    const myEntry = scoredLb?.find(s=>s.username===identity?.username);
+                    const rank = myEntry ? scoredLb.indexOf(myEntry)+1 : null;
+                    const picksWithScore = {...mySubmission, score: myEntry?.score??null, fantasyScore: myEntry?.fantasyScore??null, rank};
+                    return <ShareButtons picks={picksWithScore} publishedResults={publishedResults} fantasyData={fantasyData} identity={identity}/>;
+                  })()}
                 </div>
                 {publishedResults&&(
                   <div className="card">
