@@ -486,11 +486,17 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
-  // Load fonts
+  // Load Archivo font
   try {
-    await document.fonts.load("700 48px Rajdhani");
-    await document.fonts.load("600 32px Inter");
+    const font = new FontFace("Archivo", "url(https://fonts.gstatic.com/s/archivo/v19/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q.woff2)", { weight: "600" });
+    await font.load();
+    document.fonts.add(font);
+    const fontMed = new FontFace("Archivo", "url(https://fonts.gstatic.com/s/archivo/v19/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q.woff2)", { weight: "500" });
+    await fontMed.load();
+    document.fonts.add(fontMed);
   } catch {}
+
+  const FONT = "Archivo, Inter, sans-serif";
 
   // Helper: load image
   const loadImg = (src) => new Promise((res) => {
@@ -498,7 +504,7 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     img.crossOrigin = "anonymous";
     img.onload = () => res(img);
     img.onerror = () => res(null);
-    img.src = src + "?v=" + Date.now();
+    img.src = src;
   });
 
   // Helper: rounded rect
@@ -514,45 +520,745 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = strokeW; ctx.stroke(); }
   };
 
-  // ── Draw template background ──
+  // Draw template
   const template = await loadImg("/logos/story.png");
   if (template) {
     ctx.drawImage(template, 0, 0, W, H);
   } else {
-    // Fallback: white bg
     ctx.fillStyle = "#f5f5f5";
     ctx.fillRect(0, 0, W, H);
   }
 
-  // ── Draw username over the username box area (y~315-390) ──
-  ctx.font = "700 36px Inter";
+  // ── Username — drawn INSIDE the box (box is at y~310-390) ──
+  // The box top border is at y≈300, box height ~80px, center at y≈340
+  ctx.font = `600 34px ${FONT}`;
   ctx.fillStyle = "#1a1a1a";
   ctx.textAlign = "center";
-  ctx.fillText((identity?.username || "player").toUpperCase(), W/2, 362);
+  ctx.fillText((identity?.username || "player").toUpperCase(), W/2, 350);
 
-  // ── Content zone: y=420 to y=1740 ──
-  // Available height: 1320px for 5 top5 rows + mvp + igl/kills + score
-  // Top 5: 5 rows × 180px = 900px  
-  // MVP section: 200px
-  // IGL/Kills: 160px  
-  // Score: 100px (if shown)
-  // Total fits perfectly
+  // ── Content zone starts at y=420 ──
+  let y = 430;
+  const PAD = 72;
+  const ROW_H = 130; // reduced row height
+  const INNER_W = W - PAD * 2;
 
-  let y = 440;
-  const PAD = 60; // horizontal padding
-  const ROW_H = 168;
-
-  // ── TOP 5 label ──
-  ctx.font = "700 28px Inter";
+  // ── TOP 5 PICKS label ──
+  ctx.font = `600 26px ${FONT}`;
   ctx.fillStyle = "rgba(0,0,0,0.35)";
   ctx.textAlign = "left";
-  ctx.letterSpacing = "4px";
+  ctx.letterSpacing = "3px";
   ctx.fillText("TOP 5 PICKS", PAD, y);
   ctx.letterSpacing = "0px";
-  // accent line
   ctx.fillStyle = "#1a56db";
-  ctx.fillRect(PAD, y+6, 52, 3);
-  y += 36;
+  ctx.fillRect(PAD, y + 7, 46, 3);
+  y += 34;
+
+  const top5 = picks.top5 || [];
+  const champ = picks.champion;
+
+  for (let i = 0; i < top5.length; i++) {
+    const team = TEAMS.find(t => t.name === top5[i]);
+    const isChamp = top5[i] === champ;
+    const rowY = y + i * (ROW_H + 10);
+    const rowH = ROW_H;
+
+    // Row background
+    roundRect(PAD, rowY, INNER_W, rowH, 14,
+      isChamp ? "rgba(245,158,11,0.1)" : "rgba(0,0,0,0.04)",
+      isChamp ? "rgba(245,158,11,0.45)" : "rgba(0,0,0,0.09)",
+      isChamp ? 2.5 : 1.5
+    );
+
+    const midY = rowY + rowH / 2;
+
+    // Rank — more padding from left
+    ctx.font = `600 32px ${FONT}`;
+    ctx.fillStyle = isChamp ? "#d97706" : "rgba(0,0,0,0.22)";
+    ctx.textAlign = "left";
+    ctx.fillText("#"+(i+1), PAD + 22, midY + 11);
+
+    // Team logo — smaller
+    const logoSize = 68;
+    const logoX = PAD + 100;
+    const logoY = midY - logoSize / 2;
+    if (team) {
+      const logoImg = await loadImg(LOGO(team.logo));
+      if (logoImg) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(logoX, logoY, logoSize, logoSize, 8);
+        ctx.clip();
+        ctx.drawImage(logoImg, logoX, logoY, logoSize, logoSize);
+        ctx.restore();
+      }
+    }
+
+    // Team name — smaller font, truncate properly
+    ctx.font = `600 30px ${FONT}`;
+    ctx.fillStyle = isChamp ? "#92400e" : "#0f172a";
+    ctx.textAlign = "left";
+    const champBadgeW = isChamp ? 200 : 0;
+    const maxNameW = INNER_W - 100 - 20 - logoSize - 20 - champBadgeW - 20;
+    let teamName = team?.name || top5[i];
+    while (ctx.measureText(teamName).width > maxNameW && teamName.length > 4) {
+      teamName = teamName.slice(0, -1);
+    }
+    if (teamName !== (team?.name || top5[i])) teamName += "…";
+    ctx.fillText(teamName, logoX + logoSize + 18, midY + 11);
+
+    // Champion pill — auto-sized to text
+    if (isChamp) {
+      const champText = "★  CHAMPION";
+      ctx.font = `700 22px ${FONT}`;
+      const textW = ctx.measureText(champText).width;
+      const pillW = textW + 36;
+      const pillH = 44;
+      const pillX = PAD + INNER_W - pillW - 18;
+      const pillY = midY - pillH / 2;
+      roundRect(pillX, pillY, pillW, pillH, pillH/2, "rgba(245,158,11,0.18)", "rgba(245,158,11,0.6)", 2);
+      ctx.fillStyle = "#b45309";
+      ctx.textAlign = "center";
+      ctx.fillText(champText, pillX + pillW/2, pillY + pillH/2 + 8);
+    }
+  }
+
+  y += top5.length * (ROW_H + 10) + 22;
+
+  // ── Divider ──
+  ctx.fillStyle = "rgba(0,0,0,0.08)";
+  ctx.fillRect(PAD, y, INNER_W, 1.5);
+  y += 26;
+
+  // ── Bottom 4 boxes: Finals MVP, Event MVP, Best IGL, Most Kills ──
+  // NO "MVP PICKS" label — removed per request
+  const BOX_H = 120;
+  const colW = (INNER_W - 20) / 2;
+
+  const drawBox = async (label, value, colX, bY, findFn) => {
+    const team = findFn ? findFn(value) : null;
+    roundRect(colX, bY, colW, BOX_H, 14,
+      "rgba(0,0,0,0.04)", "rgba(0,0,0,0.08)", 1.5);
+
+    const midY = bY + BOX_H / 2;
+
+    // Label top
+    ctx.font = `500 20px ${FONT}`;
+    ctx.fillStyle = "rgba(0,0,0,0.38)";
+    ctx.textAlign = "left";
+    ctx.letterSpacing = "2px";
+    ctx.fillText(label.toUpperCase(), colX + 16, bY + 28);
+    ctx.letterSpacing = "0px";
+
+    // Logo — vertically centered in remaining space
+    const logoSize = 52;
+    const logoY = midY - logoSize/2 + 10;
+    if (team) {
+      const li = await loadImg(LOGO(team.logo));
+      if (li) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(colX + 16, logoY, logoSize, logoSize, 6);
+        ctx.clip();
+        ctx.drawImage(li, colX + 16, logoY, logoSize, logoSize);
+        ctx.restore();
+      }
+    }
+
+    // Value text — vertically centered
+    ctx.font = `600 28px ${FONT}`;
+    ctx.fillStyle = "#0f172a";
+    ctx.textAlign = "left";
+    let val = value || "-";
+    const maxW = colW - (team ? logoSize + 28 : 20) - 20;
+    while (ctx.measureText(val).width > maxW && val.length > 3) val = val.slice(0,-1);
+    if (val !== (value||"-") && val.length < (value||"-").length) val += "…";
+    const textX = team ? colX + 16 + logoSize + 12 : colX + 16;
+    ctx.fillText(val, textX, midY + 14);
+  };
+
+  const findByPlayer = (name) => TEAMS.find(t => t.players?.includes(name));
+  const findByTeam   = (name) => TEAMS.find(t => t.name === name);
+  const findByIgl    = (name) => TEAMS.find(t => t.igl === name);
+
+  // Row 1: Finals MVP + Event MVP
+  await drawBox("Finals MVP",  picks.finalsMvp?.[0],   PAD,           y, findByPlayer);
+  await drawBox("Event MVP",   picks.eventMvp?.[0],    PAD+colW+20,   y, findByPlayer);
+  y += BOX_H + 16;
+
+  // Row 2: Best IGL + Most Kills
+  await drawBox("Best IGL",    picks.bestIgl,           PAD,           y, findByIgl);
+  await drawBox("Most Kills",  picks.mostFinishes,      PAD+colW+20,   y, findByTeam);
+  y += BOX_H + 20;
+
+  // ── Score badge (if published) ──
+  if (publishedResults && picks.score != null) {
+    ctx.fillStyle = "rgba(0,0,0,0.08)";
+    ctx.fillRect(PAD, y, INNER_W, 1.5);
+    y += 18;
+    const scoreText = (picks.score || 0) + " pts";
+    roundRect(W/2-140, y, 280, 80, 14, "rgba(26,86,219,0.1)", "rgba(26,86,219,0.35)", 2);
+    ctx.font = `500 20px ${FONT}`;
+    ctx.fillStyle = "rgba(26,86,219,0.7)";
+    ctx.textAlign = "center";
+    ctx.fillText("PREDICTION SCORE", W/2, y+26);
+    ctx.font = `700 42px ${FONT}`;
+    ctx.fillStyle = "#1a56db";
+    ctx.fillText(scoreText, W/2, y+66);
+  }
+
+  return canvas;
+}
+import { useState, useEffect, useRef, useCallback } from "react";
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, collection, setDoc, getDoc, getDocs } from "firebase/firestore";
+
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+};
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+
+const ADMIN_PASS_HASH = import.meta.env.VITE_ADMIN_PASS_HASH;
+const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET;
+const ADMIN_HASH = import.meta.env.VITE_ADMIN_HASH;
+
+const META_DOC      = "bgis2026_finals_meta";
+const SUBS_COL      = "bgis2026_finals_submissions";
+const LB_META_DOC   = "bgis2026_lb_meta";
+const LB_PAGE_PREFIX= "bgis2026_lb_page_";
+const USERS_COL     = "bgis2026_finals_users";
+const DEADLINE      = new Date("2026-03-27T07:30:00Z");
+
+const LS_TOKEN      = "bgis2026f_token";
+const LS_DOCID      = "bgis2026f_docid";
+const LS_META       = "bgis2026f_meta";
+const LS_MY_SUB     = "bgis2026f_my_sub";
+const LS_LB_META    = "bgis2026f_lb_meta";
+const LS_LB_PAGE    = "bgis2026f_lb_page_";
+const META_TTL      = 20 * 60 * 1000; // 20 minutes
+const PAGE_SIZE     = 500;
+
+const LOGO = (name) => `/logos/${name}.png`;
+
+// ── Teams ─────────────────────────────────────────────────────────
+const TEAMS = [
+  { id:"genesis",   name:"Genesis Esports",        logo:"Genesis_Esports",        igl:"Gravity",   players:["Gravity","Viper","Zap","HunterZ","Fury"] },
+  { id:"godlike",   name:"Hero Xtreme GodLike",    logo:"Hero_Xtreme_GodLike",    igl:"Manya",     players:["Manya","Admino","Spower","Jonathan","Godz"] },
+  { id:"k9",        name:"K9 Esports",             logo:"K9_Esports",             igl:"Omegaaa",   players:["Omegaaa","NinjaBoi","Slug","Knight","Ryzenbotx"] },
+  { id:"metaninza", name:"Meta Ninza",              logo:"Meta_Ninza",             igl:"Shadow7",   players:["Shadow7","Fierce","Apollo","WhiteTiger","Javin"] },
+  { id:"myth",      name:"Myth Esports",            logo:"Myth_Esports",           igl:"Detrox",    players:["Detrox","Harshil","Lucifer","Daddy","Aryton"] },
+  { id:"nebula",    name:"Nebula Esports",          logo:"Nebula_Esports",         igl:"Aadi",      players:["Aadi","Phoenix","KRATOS","KNOWME","Ryu"] },
+  { id:"orangutan", name:"iQOO Orangutan",          logo:"iQOO_Orangutan",         igl:"Aaru",      players:["Aaru","AKop","Attanki","WizzGOD"] },
+  { id:"reckoning", name:"iQOO Reckoning Esports", logo:"iQOO_Reckoning_Esports", igl:"Roman",     players:["Roman","Levi","Lovish","Godx","SahilOpAf"] },
+  { id:"revenant",  name:"iQOO Revenant XSpark",   logo:"iQOO_Revenant_XSpark",   igl:"Punkk",     players:["Punkk","NinjaJOD","Pain","Tracegod","JD"] },
+  { id:"lfp",       name:"Learn from Past",         logo:"Learn_from_Past",        igl:"Honey",     players:["Honey","Max","Rushboy","Termi"] },
+  { id:"soul",      name:"iQOO SouL",               logo:"iQOO_SouL",              igl:"Nakul",     players:["Nakul","Goblin","LEGIT","Jokerr","Thunder"] },
+  { id:"tamilas",   name:"iQOO Team Tamilas",       logo:"iQOO_Team_Tamilas",      igl:"MrIGL",     players:["MrIGL","Reaper","AimGod","FoxOP"] },
+  { id:"vasista",   name:"Vasista Esports",          logo:"Vasista_Esports",        igl:"Hector",    players:["Hector","Beast","Saumay","Shayaan","FusionOP"] },
+  { id:"vs",        name:"Victores Sumus",           logo:"Victores_Sumus",         igl:"Owais",     players:["Owais","Mafia","Venom","Scarryjod","Sarang"] },
+  { id:"welt",      name:"Welt Esports",             logo:"Welt_Esports",           igl:"Gokul",     players:["Gokul","Justy","Proton","Shyam","Maxioso"] },
+  { id:"wyld",      name:"Wyld Fangs",               logo:"Wyld_Fangs",             igl:"SenseiOG",  players:["SenseiOG","Kanha","Spraygod","Goten","Sam"] },
+];
+
+const SHORT = {
+  "Genesis Esports":        "GENS",
+  "Hero Xtreme GodLike":   "HX-GODL",
+  "K9 Esports":            "K9",
+  "Meta Ninza":            "NINZA",
+  "Myth Esports":          "MYTH",
+  "Nebula Esports":        "NBE",
+  "iQOO Orangutan":        "IQ-OG",
+  "iQOO Reckoning Esports":"IQ-RGE",
+  "iQOO Revenant XSpark":  "IQ-RNTX",
+  "Learn from Past":       "LEFP",
+  "iQOO SouL":             "IQ-SOUL",
+  "iQOO Team Tamilas":     "IQ-TT",
+  "Vasista Esports":       "VE",
+  "Victores Sumus":        "VS",
+  "Welt Esports":          "WELT",
+  "Wyld Fangs":            "WF",
+};
+const sn = (name) => SHORT[name] || name;
+const ALL_IGLS = TEAMS.map(t => ({ player:t.igl, team:t.name, teamId:t.id, logo:t.logo }));
+
+// ── Scoring ───────────────────────────────────────────────────────
+function calcPredictionScore(picks, results) {
+  if (!results || !picks) return null;
+  let score = 0;
+  const { top5, champion, finalsMvp, eventMvp, bestIgl, mostFinishes } = picks;
+  if (results.top5 && top5) top5.forEach(t => { if (results.top5.includes(t)) score += t===champion?30:10; });
+  if (results.finalsMvp && finalsMvp) {
+    if (finalsMvp[0]===results.finalsMvp) score+=50;
+    else if (finalsMvp[1]===results.finalsMvp||finalsMvp[2]===results.finalsMvp) score+=20;
+  }
+  if (results.eventMvp && eventMvp) {
+    if (eventMvp[0]===results.eventMvp) score+=40;
+    else if (eventMvp[1]===results.eventMvp||eventMvp[2]===results.eventMvp) score+=20;
+  }
+  if (results.bestIgl && bestIgl===results.bestIgl) score+=25;
+  if (results.mostFinishes && mostFinishes===results.mostFinishes) score+=20;
+  return score;
+}
+
+function calcFantasyScore(picks, fantasyData) {
+  if (!fantasyData||!picks) return null;
+  const { top5, champion, finalsMvp } = picks;
+  let score = 0;
+  if (top5&&fantasyData.teamPoints) {
+    top5.forEach(name => {
+      const t = TEAMS.find(t=>t.name===name);
+      if (t&&fantasyData.teamPoints[t.id]!=null) {
+        const pts = fantasyData.teamPoints[t.id];
+        score += name===champion ? Math.round(pts*1.5) : pts;
+      }
+    });
+  }
+  if (finalsMvp&&fantasyData.playerKills) {
+    (Array.isArray(finalsMvp)?finalsMvp:[finalsMvp]).forEach((p,i)=>{
+      const k=fantasyData.playerKills[p];
+      if (k!=null) score += i===0?Math.round(k*1.5):k;
+    });
+  }
+  return score;
+}
+
+// ── Tiebreaker sort ───────────────────────────────────────────────
+// 1. Total score
+// 2. Champion correct
+// 3. Finals MVP (1st > 2nd > 3rd)
+// 4. Event MVP (1st > 2nd > 3rd)
+// 5. More correct teams in top5
+// 6. Top5 rank order (position accuracy)
+// 7. Best IGL correct
+// 8. Earlier submission
+function tiebreakerSort(a, b, results) {
+  if (!results) return new Date(a.createdAt||0) - new Date(b.createdAt||0);
+
+  // 1. Total score
+  if (b.score !== a.score) return b.score - a.score;
+
+  // 2. Champion correct
+  const aChampCorrect = a.champion && results.champion && a.champion===results.champion ? 1 : 0;
+  const bChampCorrect = b.champion && results.champion && b.champion===results.champion ? 1 : 0;
+  if (bChampCorrect !== aChampCorrect) return bChampCorrect - aChampCorrect;
+
+  // 3. Finals MVP (1st choice=2, 2nd choice=1, 3rd choice=0)
+  const mvpRank = (picks, result) => {
+    if (!picks||!result) return -1;
+    if (picks[0]===result) return 2;
+    if (picks[1]===result) return 1;
+    if (picks[2]===result) return 0;
+    return -1;
+  };
+  const aFmvp = mvpRank(a.finalsMvp, results.finalsMvp);
+  const bFmvp = mvpRank(b.finalsMvp, results.finalsMvp);
+  if (bFmvp !== aFmvp) return bFmvp - aFmvp;
+
+  // 4. Event MVP
+  const aEmvp = mvpRank(a.eventMvp, results.eventMvp);
+  const bEmvp = mvpRank(b.eventMvp, results.eventMvp);
+  if (bEmvp !== aEmvp) return bEmvp - aEmvp;
+
+  // 5. More correct teams in top5
+  const countCorrect = (top5) => results.top5 ? (top5||[]).filter(t=>results.top5.includes(t)).length : 0;
+  const aCorrect = countCorrect(a.top5), bCorrect = countCorrect(b.top5);
+  if (bCorrect !== aCorrect) return bCorrect - aCorrect;
+
+  // 6. Top5 rank order — cascade through positions
+  if (results.top5) {
+    for (let i=0; i<results.top5.length; i++) {
+      const correctTeam = results.top5[i];
+      if (!correctTeam) continue;
+      const aHas = (a.top5||[])[i]===correctTeam ? 1 : 0;
+      const bHas = (b.top5||[])[i]===correctTeam ? 1 : 0;
+      if (bHas !== aHas) return bHas - aHas;
+    }
+  }
+
+  // 7. Best IGL correct
+  const aIgl = a.bestIgl && results.bestIgl && a.bestIgl===results.bestIgl ? 1 : 0;
+  const bIgl = b.bestIgl && results.bestIgl && b.bestIgl===results.bestIgl ? 1 : 0;
+  if (bIgl !== aIgl) return bIgl - aIgl;
+
+  // 8. Earlier submission wins
+  return new Date(a.createdAt||a.timestamp||0) - new Date(b.createdAt||b.timestamp||0);
+}
+
+// ── Meta caching (20 min TTL) ─────────────────────────────────────
+function getCachedMeta() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(LS_META)||"null");
+    if (!cached) return null;
+    if (Date.now() - cached.fetchedAt > META_TTL) return null;
+    return cached.data;
+  } catch { return null; }
+}
+function setCachedMeta(data) {
+  try { localStorage.setItem(LS_META, JSON.stringify({ data, fetchedAt: Date.now() })); } catch {}
+}
+function invalidateMetaCache() {
+  try { localStorage.removeItem(LS_META); } catch {}
+}
+
+// ── My submission caching ─────────────────────────────────────────
+function getCachedSub(username) {
+  try {
+    const cached = JSON.parse(localStorage.getItem(LS_MY_SUB)||"null");
+    if (cached && cached.username === username) return cached;
+    return null;
+  } catch { return null; }
+}
+function setCachedSub(sub) {
+  try { localStorage.setItem(LS_MY_SUB, JSON.stringify(sub)); } catch {}
+}
+
+// ── LB cache helpers ──────────────────────────────────────────────
+function getCachedLbMeta(version) {
+  try {
+    const cached = JSON.parse(localStorage.getItem(LS_LB_META)||"null");
+    if (cached && cached.version === version) return cached;
+    return null;
+  } catch { return null; }
+}
+function setCachedLbMeta(data) {
+  try { localStorage.setItem(LS_LB_META, JSON.stringify(data)); } catch {}
+}
+function getCachedLbPage(version, page) {
+  try {
+    const cached = JSON.parse(localStorage.getItem(LS_LB_PAGE+page)||"null");
+    if (cached && cached.version === version) return cached.entries;
+    return null;
+  } catch { return null; }
+}
+function setCachedLbPage(version, page, entries) {
+  try { localStorage.setItem(LS_LB_PAGE+page, JSON.stringify({ version, entries })); } catch {}
+}
+function invalidateLbCache() {
+  try {
+    localStorage.removeItem(LS_LB_META);
+    for (let i=0; i<100; i++) localStorage.removeItem(LS_LB_PAGE+i);
+  } catch {}
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+async function hashPin(pin) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+function fmtTime(iso) {
+  return new Date(iso).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
+}
+function timeLeft() {
+  const diff = DEADLINE.getTime()-Date.now();
+  if (diff<=0) return null;
+  const d=Math.floor(diff/86400000),h=Math.floor((diff%86400000)/3600000),m=Math.floor((diff%3600000)/60000);
+  if (d>0) return d+"d "+h+"h left";
+  if (h>0) return h+"h "+m+"m left";
+  return m+"m left";
+}
+const isClosed = () => new Date() > DEADLINE;
+
+// ── CSS ───────────────────────────────────────────────────────────
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@600;700&display=swap');
+  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+  html { scroll-behavior:smooth; }
+  body { background:#f0f4ff; font-family:'Inter',sans-serif; color:#0f172a; -webkit-font-smoothing:antialiased; overflow-x:hidden; }
+  .app { min-height:100vh; display:flex; flex-direction:column; }
+  .wrap { max-width:1200px; margin:0 auto; padding:0 24px; flex:1; }
+
+  .hero { background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 50%,#1a56db 100%); padding:28px 16px 24px; text-align:center; position:relative; overflow:hidden; }
+  .hero::after { content:''; position:absolute; inset:0; background:radial-gradient(ellipse at 50% 120%,rgba(26,86,219,.25),transparent 70%); pointer-events:none; }
+  .hero-logo { height:64px; object-fit:contain; margin-bottom:10px; position:relative; z-index:1; }
+  .hero-title { font-family:'Rajdhani',sans-serif; font-size:clamp(26px,5.5vw,50px); font-weight:700; color:#fff; line-height:1; position:relative; z-index:1; margin-bottom:4px; }
+  .hero-title span { color:#60a5fa; }
+  .hero-sub { font-size:12px; color:rgba(255,255,255,.6); position:relative; z-index:1; margin-bottom:12px; }
+  .hero-badges { display:flex; justify-content:center; align-items:center; gap:7px; flex-wrap:wrap; position:relative; z-index:1; }
+  .badge { display:inline-flex; align-items:center; gap:5px; padding:4px 11px; border-radius:20px; font-size:11px; font-weight:600; }
+  .badge-green { background:rgba(34,197,94,.12); border:1px solid rgba(34,197,94,.3); color:#86efac; }
+  .badge-red { background:rgba(239,68,68,.12); border:1px solid rgba(239,68,68,.3); color:#fca5a5; }
+  .badge-blue { background:rgba(96,165,250,.15); border:1px solid rgba(96,165,250,.35); color:#93c5fd; }
+  .badge-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .badge-dot.pulse { animation:pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .tour-link { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:600; color:#fff; text-decoration:none; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.25); border-radius:20px; padding:4px 11px; transition:all .15s; }
+  .tour-link:hover { background:rgba(255,255,255,.2); }
+
+  .content-grow { flex:1; display:flex; flex-direction:column; }
+  .score-strip { background:#fff; border-bottom:1px solid #e2e8f0; padding:7px 16px; display:flex; gap:14px; overflow-x:auto; font-size:11px; font-weight:600; color:#475569; scrollbar-width:none; }
+  .score-strip::-webkit-scrollbar { display:none; }
+  .si { display:flex; align-items:center; gap:4px; white-space:nowrap; }
+  .sd { width:7px; height:7px; border-radius:50%; display:inline-block; }
+
+  .nav { background:#fff; border-bottom:2px solid #e2e8f0; display:flex; overflow-x:auto; position:sticky; top:0; z-index:50; box-shadow:0 2px 8px rgba(15,23,42,.06); scrollbar-width:none; }
+  .nav::-webkit-scrollbar { display:none; }
+  .nb { flex-shrink:0; padding:13px 18px; font-family:'Inter',sans-serif; font-size:13px; font-weight:600; color:#64748b; background:none; border:none; border-bottom:3px solid transparent; margin-bottom:-2px; cursor:pointer; white-space:nowrap; transition:all .15s; }
+  .nb:hover { color:#0f172a; }
+  .nb.active { color:#1a56db; border-bottom-color:#1a56db; }
+
+  .card { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:18px; margin-bottom:14px; }
+  .card-title { font-family:'Rajdhani',sans-serif; font-size:17px; font-weight:700; color:#0f172a; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #f1f5f9; display:flex; align-items:center; gap:8px; }
+  .sec-label { font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:#94a3b8; margin-bottom:9px; }
+
+  .auth-card { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:22px; margin-bottom:14px; }
+  .auth-title { font-size:15px; font-weight:700; color:#0f172a; margin-bottom:5px; }
+  .auth-sub { font-size:13px; color:#64748b; margin-bottom:16px; line-height:1.6; }
+
+  .input { width:100%; background:#f8faff; border:1.5px solid #e2e8f0; border-radius:10px; padding:11px 13px; font-size:14px; font-family:'Inter',sans-serif; color:#0f172a; outline:none; transition:border-color .15s,box-shadow .15s; }
+  .input:focus { border-color:#1a56db; box-shadow:0 0 0 3px rgba(26,86,219,.08); }
+  .input::placeholder { color:#94a3b8; }
+  .input.err { border-color:#ef4444; }
+  .pin-input { text-align:center; font-size:26px; font-weight:800; letter-spacing:.22em; font-family:'Rajdhani',sans-serif; }
+
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; font-family:'Inter',sans-serif; font-size:13px; font-weight:600; border-radius:8px; padding:9px 15px; cursor:pointer; transition:all .15s; border:1.5px solid; white-space:nowrap; }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .btn-primary { background:#1a56db; border-color:#1a56db; color:#fff; box-shadow:0 4px 12px rgba(26,86,219,.25); }
+  .btn-primary:hover:not(:disabled) { background:#1648c0; transform:translateY(-1px); }
+  .btn-outline { background:transparent; border-color:#cbd5e1; color:#475569; }
+  .btn-outline:hover:not(:disabled) { border-color:#1a56db; color:#1a56db; background:rgba(26,86,219,.04); }
+  .btn-green { background:rgba(22,163,74,.08); border-color:rgba(22,163,74,.3); color:#15803d; }
+  .btn-green:hover:not(:disabled) { background:rgba(22,163,74,.14); }
+  .btn-red { background:rgba(239,68,68,.08); border-color:rgba(239,68,68,.3); color:#dc2626; }
+  .btn-purple { background:rgba(139,92,246,.08); border-color:rgba(139,92,246,.3); color:#7c3aed; }
+  .btn-row { display:flex; gap:8px; flex-wrap:wrap; }
+  .btn-full { width:100%; font-size:15px; padding:13px 20px; }
+
+  .user-bar { display:flex; align-items:center; gap:10px; background:rgba(22,163,74,.06); border:1px solid rgba(22,163,74,.2); border-radius:10px; padding:10px 14px; margin-bottom:14px; flex-wrap:wrap; }
+  .user-bar-name { font-size:15px; font-weight:700; flex:1; }
+
+  .steps { display:flex; margin-bottom:18px; border-radius:10px; overflow:hidden; border:1px solid #e2e8f0; }
+  .step { flex:1; padding:10px 6px; text-align:center; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:#94a3b8; background:#fff; border-right:1px solid #e2e8f0; }
+  .step:last-child { border-right:none; }
+  .step.active { color:#1a56db; background:rgba(26,86,219,.05); }
+  .step.done { color:#16a34a; background:rgba(22,163,74,.05); }
+  .sn { display:inline-flex; width:15px; height:15px; border-radius:50%; background:#e2e8f0; align-items:center; justify-content:center; font-size:9px; margin-right:3px; vertical-align:middle; }
+  .step.active .sn { background:#1a56db; color:#fff; }
+  .step.done .sn { background:#16a34a; color:#fff; }
+
+  .teams-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:8px; margin-bottom:14px; }
+  @media(max-width:400px) { .teams-grid { grid-template-columns:repeat(3,1fr); } }
+  .team-card { background:#fff; border:1.5px solid #e2e8f0; border-radius:10px; padding:10px 6px 8px; display:flex; flex-direction:column; align-items:center; gap:5px; cursor:pointer; transition:all .15s; font-family:'Inter',sans-serif; position:relative; min-height:76px; text-align:center; }
+  .team-card:hover:not(:disabled):not(.selected) { border-color:#1a56db; background:rgba(26,86,219,.04); transform:translateY(-2px); box-shadow:0 4px 12px rgba(26,86,219,.1); }
+  .team-card.selected { border-color:#1a56db; background:rgba(26,86,219,.06); }
+  .team-card.champ-pick { border-color:#f59e0b; background:rgba(245,158,11,.07); box-shadow:0 0 0 2px rgba(245,158,11,.2); }
+  .team-card:disabled { opacity:.4; cursor:not-allowed; }
+  .team-logo { width:40px; height:40px; object-fit:contain; }
+  .team-name { font-size:10px; font-weight:600; color:#0f172a; line-height:1.2; }
+  .tbadge { position:absolute; top:3px; left:3px; font-size:10px; font-weight:700; background:#1a56db; color:#fff; border-radius:4px; padding:1px 4px; line-height:1.4; }
+  .tbadge.gold { background:#f59e0b; }
+
+  .slots-list { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+  .drag-slot { display:flex; align-items:center; gap:9px; background:#f8faff; border:1.5px solid #1a56db; border-radius:10px; padding:8px 11px; cursor:grab; user-select:none; transition:all .15s; }
+  .drag-slot:active { cursor:grabbing; }
+  .drag-slot.is-champ { border-color:#f59e0b; background:rgba(245,158,11,.06); }
+  .drag-slot.drag-over { transform:scale(1.01); box-shadow:0 4px 12px rgba(26,86,219,.15); }
+  .drag-handle { color:#cbd5e1; font-size:15px; flex-shrink:0; }
+  .drag-num { font-family:'Rajdhani',sans-serif; font-size:17px; font-weight:700; color:#1a56db; min-width:20px; text-align:center; flex-shrink:0; }
+  .drag-slot.is-champ .drag-num { color:#f59e0b; }
+  .drag-logo { width:26px; height:26px; object-fit:contain; flex-shrink:0; }
+  .drag-name { font-size:13px; font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .drag-actions { display:flex; align-items:center; gap:5px; flex-shrink:0; }
+  .champ-btn { font-size:10px; font-weight:600; padding:2px 7px; border-radius:6px; cursor:pointer; border:1.5px solid #cbd5e1; background:transparent; color:#64748b; font-family:'Inter',sans-serif; transition:all .15s; white-space:nowrap; }
+  .champ-btn.on { background:rgba(245,158,11,.12); border-color:#f59e0b; color:#92400e; }
+  .rm-btn { width:19px; height:19px; border-radius:50%; background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.2); color:#dc2626; font-size:9px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
+
+  .banner { border-radius:10px; padding:9px 13px; margin-bottom:12px; font-size:12px; font-weight:600; line-height:1.5; }
+  .banner.amber { background:rgba(245,158,11,.08); border:1px solid rgba(245,158,11,.25); color:#92400e; }
+  .banner.blue { background:rgba(26,86,219,.06); border:1px solid rgba(26,86,219,.2); color:#1e40af; }
+  .banner.green { background:rgba(22,163,74,.06); border:1px solid rgba(22,163,74,.2); color:#14532d; }
+
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#16a34a; color:#fff; font-weight:700; font-size:13px; padding:11px 20px; border-radius:10px; z-index:999; white-space:nowrap; box-shadow:0 4px 20px rgba(0,0,0,.15); animation:tin .25s ease; }
+  .toast.err { background:#dc2626; }
+  @keyframes tin { from{opacity:0;transform:translateX(-50%) translateY(8px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+
+  .loading { text-align:center; padding:48px 20px; color:#94a3b8; }
+  .spinner { width:28px; height:28px; border:3px solid #e2e8f0; border-top-color:#1a56db; border-radius:50%; animation:spin .7s linear infinite; margin:0 auto 12px; }
+  @keyframes spin { to{transform:rotate(360deg)} }
+
+  .locked { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:40px 20px; text-align:center; margin-bottom:14px; }
+  .locked-icon { font-size:36px; margin-bottom:10px; }
+  .locked-title { font-family:'Rajdhani',sans-serif; font-size:19px; font-weight:700; color:#0f172a; margin-bottom:5px; }
+  .locked-sub { font-size:13px; color:#64748b; line-height:1.6; }
+
+  .chips { display:flex; flex-wrap:wrap; gap:4px; }
+  .chip { font-size:10px; font-weight:600; padding:2px 7px; border-radius:4px; background:#f1f5f9; border:1px solid #e2e8f0; color:#475569; }
+  .chip.correct { background:rgba(22,163,74,.1); border-color:rgba(22,163,74,.3); color:#16a34a; }
+  .chip.champion { background:rgba(245,158,11,.1); border-color:rgba(245,158,11,.3); color:#92400e; }
+
+  /* Leaderboard search + pagination */
+  .lb-search { width:100%; background:#fff; border:1.5px solid #e2e8f0; border-radius:10px; padding:10px 14px 10px 38px; font-size:13px; font-family:'Inter',sans-serif; color:#0f172a; outline:none; transition:border-color .15s; margin-bottom:12px; }
+  .lb-search:focus { border-color:#1a56db; box-shadow:0 0 0 3px rgba(26,86,219,.08); }
+  .lb-search-wrap { position:relative; margin-bottom:12px; }
+  .lb-search-icon { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:#94a3b8; font-size:14px; pointer-events:none; }
+  .lb-search { margin-bottom:0; }
+
+  .pagination { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; flex-wrap:wrap; }
+  .page-btn { display:inline-flex; align-items:center; justify-content:center; min-width:36px; height:36px; padding:0 10px; border-radius:8px; border:1.5px solid #e2e8f0; background:#fff; font-size:13px; font-weight:600; color:#475569; cursor:pointer; transition:all .15s; font-family:'Inter',sans-serif; }
+  .page-btn:hover:not(:disabled) { border-color:#1a56db; color:#1a56db; background:rgba(26,86,219,.04); }
+  .page-btn.active { background:#1a56db; border-color:#1a56db; color:#fff; }
+  .page-btn:disabled { opacity:.4; cursor:not-allowed; }
+  .page-info { font-size:12px; font-weight:600; color:#64748b; padding:0 4px; }
+
+  .lb-tabs { display:flex; border:1.5px solid #e2e8f0; border-radius:10px; overflow:hidden; margin-bottom:14px; width:fit-content; }
+  .lb-tab { padding:8px 16px; font-size:12px; font-weight:600; background:none; border:none; cursor:pointer; font-family:'Inter',sans-serif; color:#64748b; transition:all .15s; border-right:1px solid #e2e8f0; }
+  .lb-tab:last-child { border-right:none; }
+  .lb-tab.active { background:#0f172a; color:#fff; }
+
+  .tbl { width:100%; border-collapse:separate; border-spacing:0; background:#fff; border:1.5px solid #e2e8f0; border-radius:12px; overflow:hidden; font-size:12px; }
+  .tbl th { background:#f8faff; color:#94a3b8; font-size:9px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:9px 11px; border-bottom:1.5px solid #e2e8f0; text-align:left; }
+  .tbl td { padding:9px 11px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
+  .tbl tr:last-child td { border-bottom:none; }
+  .tbl tr:hover td { background:rgba(26,86,219,.02); }
+  .rank-c { font-family:'Rajdhani',sans-serif; font-size:20px; font-weight:700; color:#94a3b8; text-align:center; width:38px; }
+  .score-pill { font-family:'Rajdhani',sans-serif; font-size:15px; font-weight:700; color:#1a56db; }
+  .fantasy-score { font-family:'Rajdhani',sans-serif; font-size:14px; font-weight:700; color:#7c3aed; }
+
+  .admin-box { background:#fff; border:1.5px solid #e2e8f0; border-radius:12px; padding:18px; margin-bottom:14px; }
+  .admin-title { font-family:'Rajdhani',sans-serif; font-size:15px; font-weight:700; color:#0f172a; margin-bottom:11px; padding-bottom:9px; border-bottom:1px solid #f1f5f9; }
+  .alabel { font-size:10px; font-weight:700; color:#94a3b8; margin-bottom:4px; text-transform:uppercase; letter-spacing:.05em; }
+  .aselect { background:#f8faff; border:1.5px solid #e2e8f0; border-radius:8px; padding:7px 9px; color:#0f172a; font-size:12px; font-family:'Inter',sans-serif; outline:none; width:100%; }
+  .aselect:focus { border-color:#1a56db; }
+  .agrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:9px; margin-bottom:12px; }
+  .del-btn { background:none; border:1px solid #e2e8f0; border-radius:6px; padding:3px 8px; font-size:10px; font-weight:600; color:#94a3b8; cursor:pointer; font-family:'Inter',sans-serif; }
+  .del-btn:hover { border-color:#ef4444; color:#dc2626; background:rgba(239,68,68,.06); }
+  .fi-wrap { display:flex; flex-direction:column; gap:3px; }
+  .fi { background:#f8faff; border:1.5px solid #e2e8f0; border-radius:7px; padding:6px 9px; font-size:12px; font-family:'Inter',sans-serif; color:#0f172a; outline:none; width:100%; }
+  .fi:focus { border-color:#1a56db; }
+  .fi-label { font-size:10px; font-weight:600; color:#64748b; }
+  .info-row { display:flex; gap:12px; align-items:center; font-size:12px; color:#64748b; flex-wrap:wrap; }
+  .info-row strong { color:#0f172a; }
+  .err-text { font-size:11px; color:#dc2626; font-weight:600; margin-top:5px; }
+
+
+  /* PC two-column layout */
+  .pc-two-col { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+  @media(max-width:700px) { .pc-two-col { grid-template-columns:1fr; } }
+
+  /* Top 5 picks column */
+  .picks-col { display:flex; flex-direction:column; gap:6px; }
+
+  /* Teams grid 4 columns on PC for top5 selection */
+  .teams-grid-pc { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  @media(max-width:700px) { .teams-grid-pc { grid-template-columns:repeat(3,1fr); } }
+
+  /* Accordion two columns on PC */
+  .acc-grid { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+  @media(max-width:700px) { .acc-grid { grid-template-columns:1fr; } }
+
+
+  /* Top social bar */
+  .topbar { background:#0f172a; padding:6px 16px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .topbar-brand { font-size:11px; font-weight:600; color:rgba(255,255,255,.45); }
+  .topbar-brand span { color:rgba(255,255,255,.75); }
+  .topbar-socials { display:flex; align-items:center; gap:2px; margin-left:auto; }
+  .topbar-social { display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:4px 10px; border-radius:6px; font-size:11px; font-weight:600; text-decoration:none; color:rgba(255,255,255,.6); transition:all .15s; white-space:nowrap; }
+  .topbar-social:hover { color:#fff; background:rgba(255,255,255,.1); }
+  @media(max-width:480px) { .topbar-brand { display:none; } .topbar-social span { display:none; } .topbar-social { padding:5px 7px; } }
+
+  /* Footer */
+  .footer { background:#0f172a; padding:28px 16px 24px; margin-top:auto; }
+  .footer-logo { height:38px; object-fit:contain; opacity:.9; display:block; margin:0 auto 18px; }
+  .footer-links { display:flex; justify-content:center; gap:16px; flex-wrap:wrap; margin-bottom:14px; }
+  .footer-link { font-size:11px; font-weight:600; color:rgba(255,255,255,.5); text-decoration:none; transition:color .15s; }
+  .footer-link:hover { color:rgba(255,255,255,.9); }
+  .footer-divider { border:none; border-top:1px solid rgba(255,255,255,.08); margin:14px 0; }
+  .footer-promo { text-align:center; font-size:12px; color:rgba(255,255,255,.45); line-height:1.6; }
+  .footer-promo a { color:#60a5fa; text-decoration:none; font-weight:600; }
+  .footer-promo a:hover { color:#93c5fd; }
+  .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.25); margin-top:12px; }
+
+
+  @media(max-width:600px) {
+    .hero { padding:20px 14px 18px; }
+    .hero-logo { height:52px; }
+    .wrap { padding:0 12px; }
+    .card { padding:14px; }
+    .nb { padding:11px 13px; font-size:12px; }
+    .drag-name { font-size:12px; }
+    .tbl { font-size:11px; }
+    .tbl th { font-size:8px; padding:7px 8px; }
+    .tbl td { padding:7px 8px; }
+    .pagination { gap:5px; }
+    .page-btn { min-width:32px; height:32px; font-size:12px; }
+  }
+`;
+
+
+// ── Share Card Generator (template-based) ────────────────────────
+async function generateShareCard(picks, publishedResults, fantasyData, identity) {
+  const canvas = document.createElement("canvas");
+  const W = 1080, H = 1920;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  // Load Archivo font
+  try {
+    const font = new FontFace("Archivo", "url(https://fonts.gstatic.com/s/archivo/v19/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q.woff2)", { weight: "600" });
+    await font.load();
+    document.fonts.add(font);
+    const fontMed = new FontFace("Archivo", "url(https://fonts.gstatic.com/s/archivo/v19/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q.woff2)", { weight: "500" });
+    await fontMed.load();
+    document.fonts.add(fontMed);
+  } catch {}
+
+  // Helper: load image
+  const loadImg = (src) => new Promise((res) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => res(img);
+    img.onerror = () => res(null);
+    img.src = src;
+  });
+
+  // Helper: rounded rect
+  const roundRect = (x,y,w,h,r,fill,stroke,strokeW=2) => {
+    ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+    ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+    ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = strokeW; ctx.stroke(); }
+  };
+
+  // ── Draw template ──
+  const template = await loadImg("/logos/story.png");
+  if (template) {
+    ctx.drawImage(template, 0, 0, W, H);
+  } else {
+    ctx.fillStyle = "#f5f5f5";
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // ── Username — drawn centered inside the box (box center: x=536, y=298) ──
+  const username = (identity?.username || "player").toUpperCase();
+  ctx.font = "600 22px Archivo, Inter, sans-serif";
+  ctx.fillStyle = "#1a1a1a";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(username, 536, 298);
+  ctx.textBaseline = "alphabetic";
+
+  // ── Content zone: y=420 to y=1740 ──
+  let y = 435;
+  const PAD = 58;
+  const ROW_H = 165;
+
+  // ── TOP 5 label ──
+  ctx.font = "600 26px Archivo, Inter, sans-serif";
+  ctx.fillStyle = "rgba(0,0,0,0.38)";
+  ctx.textAlign = "left";
+  ctx.fillText("TOP 5 PICKS", PAD, y);
+  ctx.fillStyle = "#1a56db";
+  ctx.fillRect(PAD, y+7, 48, 3);
+  y += 34;
 
   // ── Top 5 rows ──
   const top5 = picks.top5 || [];
@@ -563,23 +1269,22 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     const isChamp = top5[i] === champ;
     const rowY = y + i * ROW_H;
 
-    // Row card
-    roundRect(PAD, rowY, W-PAD*2, ROW_H-12, 16,
+    roundRect(PAD, rowY, W-PAD*2, ROW_H-14, 16,
       isChamp ? "rgba(245,158,11,0.1)" : "rgba(0,0,0,0.04)",
       isChamp ? "rgba(245,158,11,0.5)" : "rgba(0,0,0,0.1)",
       isChamp ? 3 : 1.5
     );
 
-    // Rank number
-    ctx.font = `700 38px Rajdhani`;
-    ctx.fillStyle = isChamp ? "#d97706" : "rgba(0,0,0,0.2)";
+    // Rank
+    ctx.font = "600 36px Archivo, sans-serif";
+    ctx.fillStyle = isChamp ? "#d97706" : "rgba(0,0,0,0.22)";
     ctx.textAlign = "left";
-    ctx.fillText("#"+(i+1), PAD+16, rowY + ROW_H/2 + 12);
+    ctx.fillText("#"+(i+1), PAD+14, rowY + (ROW_H-14)/2 + 12);
 
-    // Team logo
-    const logoSize = 88;
-    const logoX = PAD + 90;
-    const logoY = rowY + (ROW_H-12)/2 - logoSize/2;
+    // Logo
+    const logoSize = 82;
+    const logoX = PAD + 88;
+    const logoY = rowY + (ROW_H-14)/2 - logoSize/2;
     if (team) {
       const logoImg = await loadImg(LOGO(team.logo));
       if (logoImg) {
@@ -593,135 +1298,126 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     }
 
     // Team name
-    ctx.font = `${isChamp?"700":"600"} 38px Inter`;
+    const nameFont = `${isChamp?"600":"500"} 36px Archivo, sans-serif`;
+    ctx.font = nameFont;
     ctx.fillStyle = isChamp ? "#92400e" : "#0f172a";
     ctx.textAlign = "left";
-    // Truncate if too long
-    const maxW = isChamp ? 420 : 580;
     let teamName = team?.name || top5[i];
-    ctx.font = `${isChamp?"700":"600"} 38px Inter`;
-    while (ctx.measureText(teamName).width > maxW && teamName.length > 4) {
-      teamName = teamName.slice(0,-1);
-    }
+    const maxNameW = isChamp ? W - PAD*2 - logoSize - 88 - 200 : W - PAD*2 - logoSize - 88 - 40;
+    while (ctx.measureText(teamName).width > maxNameW && teamName.length > 4) teamName = teamName.slice(0,-1);
     if (teamName !== (team?.name || top5[i])) teamName += "…";
-    ctx.fillText(teamName, logoX + logoSize + 20, rowY + ROW_H/2 + 13);
+    ctx.fillText(teamName, logoX + logoSize + 18, rowY + (ROW_H-14)/2 + 13);
 
-    // Champion badge
+    // Champion pill — sized to content
     if (isChamp) {
-      const badgeX = W - PAD - 210;
-      const badgeY = rowY + (ROW_H-12)/2 - 26;
-      roundRect(badgeX, badgeY, 152, 52, 26, "rgba(245,158,11,0.15)", "rgba(245,158,11,0.6)", 2);
-      ctx.font = "700 24px Inter";
+      const pillText = "★ CHAMPION";
+      ctx.font = "600 24px Archivo, sans-serif";
+      const pillTextW = ctx.measureText(pillText).width;
+      const pillPadX = 28, pillH = 52, pillR = 26;
+      const pillW = pillTextW + pillPadX * 2;
+      const pillX = W - PAD - pillW;
+      const pillY = rowY + (ROW_H-14)/2 - pillH/2;
+      roundRect(pillX, pillY, pillW, pillH, pillR, "rgba(245,158,11,0.15)", "rgba(245,158,11,0.6)", 2);
       ctx.fillStyle = "#b45309";
       ctx.textAlign = "center";
-      ctx.fillText("★ CHAMPION", badgeX + 76, badgeY + 34);
+      ctx.fillText(pillText, pillX + pillW/2, pillY + pillH/2 + 9);
     }
   }
 
-  y += top5.length * ROW_H + 24;
+  y += top5.length * ROW_H + 22;
 
   // ── Divider ──
   ctx.fillStyle = "rgba(0,0,0,0.08)";
   ctx.fillRect(PAD, y, W-PAD*2, 1.5);
-  y += 28;
+  y += 26;
 
-  // ── MVP section — two columns ──
-  ctx.font = "700 28px Inter";
-  ctx.fillStyle = "rgba(0,0,0,0.35)";
-  ctx.textAlign = "left";
-  ctx.letterSpacing = "4px";
-  ctx.fillText("MVP PICKS", PAD, y);
-  ctx.letterSpacing = "0px";
-  ctx.fillStyle = "#7c3aed";
-  ctx.fillRect(PAD, y+6, 44, 3);
-  y += 30;
+  // ── MVP label ──
+  ctx.font = "600 26px Archivo, sans-serif";
+  const colW = (W - PAD*2 - 20) / 2;
 
-  const colW = (W - PAD*2 - 24) / 2;
   const drawMvpBox = async (label, playerName, colX, bY) => {
     const team = TEAMS.find(t => t.players?.includes(playerName));
     roundRect(colX, bY, colW, 148, 14, "rgba(0,0,0,0.04)", "rgba(0,0,0,0.08)", 1.5);
-    // label
-    ctx.font = "600 22px Inter";
+    ctx.font = "500 20px Archivo, sans-serif";
     ctx.fillStyle = "rgba(0,0,0,0.4)";
     ctx.textAlign = "left";
-    ctx.fillText(label.toUpperCase(), colX+14, bY+30);
-    // logo
+    ctx.fillText(label.toUpperCase(), colX+14, bY+28);
     if (team) {
       const li = await loadImg(LOGO(team.logo));
       if (li) {
         ctx.save();
         ctx.beginPath();
-        ctx.roundRect(colX+14, bY+44, 56, 56, 8);
+        ctx.roundRect(colX+14, bY+42, 58, 58, 8);
         ctx.clip();
-        ctx.drawImage(li, colX+14, bY+44, 56, 56);
+        ctx.drawImage(li, colX+14, bY+42, 58, 58);
         ctx.restore();
       }
     }
-    // player name
-    ctx.font = "700 30px Inter";
+    ctx.font = "600 30px Archivo, sans-serif";
     ctx.fillStyle = "#0f172a";
     ctx.textAlign = "left";
     let pname = playerName || "-";
-    while (ctx.measureText(pname).width > colW - 90 && pname.length > 3) pname = pname.slice(0,-1);
-    ctx.fillText(pname, colX + 80, bY + 80);
+    while (ctx.measureText(pname).width > colW - 92 && pname.length > 3) pname = pname.slice(0,-1);
+    ctx.fillText(pname, colX + 82, bY + 76);
     if (team) {
-      ctx.font = "500 22px Inter";
-      ctx.fillStyle = "rgba(0,0,0,0.4)";
-      ctx.fillText(SHORT[team.name] || team.name.split(" ")[0], colX + 80, bY + 112);
+      ctx.font = "500 20px Archivo, sans-serif";
+      ctx.fillStyle = "rgba(0,0,0,0.38)";
+      ctx.fillText(SHORT[team.name] || team.name.split(" ")[0], colX + 82, bY + 108);
     }
   };
 
   await drawMvpBox("Finals MVP", picks.finalsMvp?.[0], PAD, y);
-  await drawMvpBox("Event MVP", picks.eventMvp?.[0], PAD + colW + 24, y);
-  y += 168;
+  await drawMvpBox("Event MVP", picks.eventMvp?.[0], PAD + colW + 20, y);
+  y += 166;
 
   // ── IGL + Kills ──
   const drawInfoBox = async (label, value, colX, bY) => {
     const team = TEAMS.find(t => t.name === value || t.igl === value);
     roundRect(colX, bY, colW, 140, 14, "rgba(0,0,0,0.04)", "rgba(0,0,0,0.08)", 1.5);
-    ctx.font = "600 22px Inter";
+    ctx.font = "500 20px Archivo, sans-serif";
     ctx.fillStyle = "rgba(0,0,0,0.4)";
     ctx.textAlign = "left";
-    ctx.fillText(label.toUpperCase(), colX+14, bY+30);
+    ctx.fillText(label.toUpperCase(), colX+14, bY+28);
     if (team) {
       const li = await loadImg(LOGO(team.logo));
       if (li) {
         ctx.save();
         ctx.beginPath();
-        ctx.roundRect(colX+14, bY+42, 56, 56, 8);
+        ctx.roundRect(colX+14, bY+42, 58, 58, 8);
         ctx.clip();
-        ctx.drawImage(li, colX+14, bY+42, 56, 56);
+        ctx.drawImage(li, colX+14, bY+42, 58, 58);
         ctx.restore();
       }
     }
-    ctx.font = "700 28px Inter";
+    ctx.font = "600 28px Archivo, sans-serif";
     ctx.fillStyle = "#0f172a";
     let val = value || "-";
-    while (ctx.measureText(val).width > colW - 88 && val.length > 3) val = val.slice(0,-1);
-    ctx.fillText(val, colX+80, bY+76);
+    while (ctx.measureText(val).width > colW - 92 && val.length > 3) val = val.slice(0,-1);
+    ctx.fillText(val, colX + 82, bY + 76);
   };
 
   await drawInfoBox("Best IGL", picks.bestIgl, PAD, y);
-  await drawInfoBox("Most Kills", picks.mostFinishes, PAD + colW + 24, y);
+  await drawInfoBox("Most Kills", picks.mostFinishes, PAD + colW + 20, y);
   y += 158;
 
-  // ── Score badge (if published) ──
+  // ── Score badge ──
   if (publishedResults && picks.score != null) {
     ctx.fillStyle = "rgba(0,0,0,0.08)";
     ctx.fillRect(PAD, y, W-PAD*2, 1.5);
     y += 20;
-    roundRect(W/2-160, y, 320, 90, 16, "rgba(26,86,219,0.1)", "rgba(26,86,219,0.4)", 2);
-    ctx.font = "600 22px Inter";
+    roundRect(W/2-170, y, 340, 92, 16, "rgba(26,86,219,0.08)", "rgba(26,86,219,0.35)", 2);
+    ctx.font = "500 20px Archivo, sans-serif";
     ctx.fillStyle = "rgba(26,86,219,0.7)";
     ctx.textAlign = "center";
     ctx.fillText("PREDICTION SCORE", W/2, y+30);
-    ctx.font = "700 48px Rajdhani";
+    ctx.font = "600 50px Archivo, sans-serif";
     ctx.fillStyle = "#1a56db";
-    ctx.fillText((picks.score || 0)+" pts", W/2, y+74);
+    ctx.fillText((picks.score || 0)+" pts", W/2, y+76);
   }
 
   return canvas;
 }
+
 
 function ShareButtons({ picks, publishedResults, fantasyData, identity }) {
   const [generating, setGenerating] = useState(false);
