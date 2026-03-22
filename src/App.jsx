@@ -1436,7 +1436,7 @@ export default function App() {
             {closed
               ?<span className="badge badge-red"><span className="badge-dot"/>Submissions Closed</span>
               :<span className="badge badge-green"><span className="badge-dot pulse"/>Open · {countdown||"Closing soon"}</span>}
-            <span className="badge badge-blue">16 Teams · 215 pts max</span>
+            <span className="badge badge-blue">16 Teams · 205 pts max</span>
             <a href="https://esportsamaze.in/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026" target="_blank" rel="noopener noreferrer" className="tour-link">🔗 Tournament Page</a>
           </div>
 
