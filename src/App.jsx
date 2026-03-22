@@ -479,7 +479,7 @@ const CSS = `
 `;
 
 
-// ── Share Card Generator ──────────────────────────────────────────
+// ── Share Card Generator (template-based) ────────────────────────
 async function generateShareCard(picks, publishedResults, fantasyData, identity) {
   const canvas = document.createElement("canvas");
   const W = 1080, H = 1920;
@@ -492,39 +492,17 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     await document.fonts.load("600 32px Inter");
   } catch {}
 
-  // Background gradient
-  const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, "#0f172a");
-  grad.addColorStop(0.5, "#1e3a5f");
-  grad.addColorStop(1, "#1a1f3a");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
-
-  // Subtle grid pattern
-  ctx.strokeStyle = "rgba(255,255,255,0.03)";
-  ctx.lineWidth = 1;
-  for (let x = 0; x < W; x += 60) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
-  for (let y = 0; y < H; y += 60) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
-
-  // Top accent line
-  const accentGrad = ctx.createLinearGradient(0,0,W,0);
-  accentGrad.addColorStop(0,"#1a56db");
-  accentGrad.addColorStop(0.5,"#60a5fa");
-  accentGrad.addColorStop(1,"#1a56db");
-  ctx.fillStyle = accentGrad;
-  ctx.fillRect(0, 0, W, 8);
-
   // Helper: load image
   const loadImg = (src) => new Promise((res) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => res(img);
     img.onerror = () => res(null);
-    img.src = src;
+    img.src = src + "?v=" + Date.now();
   });
 
   // Helper: rounded rect
-  const roundRect = (x,y,w,h,r,fill,stroke) => {
+  const roundRect = (x,y,w,h,r,fill,stroke,strokeW=2) => {
     ctx.beginPath();
     ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
     ctx.quadraticCurveTo(x+w,y,x+w,y+r);
@@ -533,184 +511,214 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
     ctx.closePath();
     if (fill) { ctx.fillStyle = fill; ctx.fill(); }
-    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = strokeW; ctx.stroke(); }
   };
 
-  // Helper: section label
-  const sectionLabel = (text, y) => {
-    ctx.font = "700 28px Inter";
-    ctx.fillStyle = "rgba(148,163,184,0.9)";
-    ctx.letterSpacing = "3px";
-    ctx.fillText(text.toUpperCase(), 80, y);
-    ctx.letterSpacing = "0px";
-    // underline
-    ctx.fillStyle = "#1a56db";
-    ctx.fillRect(80, y+8, 60, 3);
-  };
-
-  // Helper: draw logo in circle
-  const drawLogo = async (logoName, cx, cy, size) => {
-    const img = await loadImg(LOGO(logoName));
-    roundRect(cx-size/2, cy-size/2, size, size, 8, "#0f172a", null);
-    if (img) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.roundRect(cx-size/2, cy-size/2, size, size, 8);
-      ctx.clip();
-      ctx.drawImage(img, cx-size/2, cy-size/2, size, size);
-      ctx.restore();
-    }
-  };
-
-  let y = 60;
-
-  // ── BGIS Logo ──
-  const bgisLogo = await loadImg(LOGO("BGIS_2026_Logo_White"));
-  if (bgisLogo) {
-    const logoH = 120, logoW = bgisLogo.width * (120/bgisLogo.height);
-    ctx.drawImage(bgisLogo, W/2 - logoW/2, y, logoW, logoH);
+  // ── Draw template background ──
+  const template = await loadImg("/logos/story.png");
+  if (template) {
+    ctx.drawImage(template, 0, 0, W, H);
+  } else {
+    // Fallback: white bg
+    ctx.fillStyle = "#f5f5f5";
+    ctx.fillRect(0, 0, W, H);
   }
-  y += 150;
 
-  // ── Title ──
-  ctx.font = "700 72px Rajdhani";
-  ctx.fillStyle = "#ffffff";
+  // ── Draw username over the username box area (y~315-390) ──
+  ctx.font = "700 36px Inter";
+  ctx.fillStyle = "#1a1a1a";
   ctx.textAlign = "center";
-  ctx.fillText("GRAND FINALS PICK'EM", W/2, y);
-  y += 56;
-  ctx.font = "500 30px Inter";
-  ctx.fillStyle = "rgba(255,255,255,0.5)";
-  ctx.fillText("Battlegrounds Mobile India Series 2026 · Chennai", W/2, y);
-  y += 60;
+  ctx.fillText((identity?.username || "player").toUpperCase(), W/2, 362);
 
-  // ── Username card ──
-  roundRect(60, y, W-120, 90, 16, "rgba(255,255,255,0.06)", "rgba(255,255,255,0.12)");
-  ctx.font = "700 40px Inter";
-  ctx.fillStyle = "#ffffff";
-  ctx.textAlign = "center";
-  ctx.fillText(identity?.username || "Player", W/2, y+58);
-  y += 130;
+  // ── Content zone: y=420 to y=1740 ──
+  // Available height: 1320px for 5 top5 rows + mvp + igl/kills + score
+  // Top 5: 5 rows × 180px = 900px  
+  // MVP section: 200px
+  // IGL/Kills: 160px  
+  // Score: 100px (if shown)
+  // Total fits perfectly
 
-  // ── Divider ──
-  ctx.fillStyle = "rgba(255,255,255,0.08)";
-  ctx.fillRect(60, y, W-120, 2);
+  let y = 440;
+  const PAD = 60; // horizontal padding
+  const ROW_H = 168;
+
+  // ── TOP 5 label ──
+  ctx.font = "700 28px Inter";
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.textAlign = "left";
+  ctx.letterSpacing = "4px";
+  ctx.fillText("TOP 5 PICKS", PAD, y);
+  ctx.letterSpacing = "0px";
+  // accent line
+  ctx.fillStyle = "#1a56db";
+  ctx.fillRect(PAD, y+6, 52, 3);
   y += 36;
 
-  // ── TOP 5 ──
-  sectionLabel("Top 5 Picks", y); y += 48;
+  // ── Top 5 rows ──
   const top5 = picks.top5 || [];
   const champ = picks.champion;
-  for (let i=0; i<top5.length; i++) {
-    const team = TEAMS.find(t=>t.name===top5[i]);
+
+  for (let i = 0; i < top5.length; i++) {
+    const team = TEAMS.find(t => t.name === top5[i]);
     const isChamp = top5[i] === champ;
-    const rowY = y + i*110;
-    // Row background
-    roundRect(60, rowY, W-120, 96, 12,
-      isChamp ? "rgba(245,158,11,0.12)" : "rgba(255,255,255,0.04)",
-      isChamp ? "rgba(245,158,11,0.4)" : "rgba(255,255,255,0.08)"
+    const rowY = y + i * ROW_H;
+
+    // Row card
+    roundRect(PAD, rowY, W-PAD*2, ROW_H-12, 16,
+      isChamp ? "rgba(245,158,11,0.1)" : "rgba(0,0,0,0.04)",
+      isChamp ? "rgba(245,158,11,0.5)" : "rgba(0,0,0,0.1)",
+      isChamp ? 3 : 1.5
     );
-    // Rank
-    ctx.font = `700 36px Rajdhani`;
-    ctx.fillStyle = isChamp ? "#f59e0b" : "rgba(255,255,255,0.3)";
+
+    // Rank number
+    ctx.font = `700 38px Rajdhani`;
+    ctx.fillStyle = isChamp ? "#d97706" : "rgba(0,0,0,0.2)";
     ctx.textAlign = "left";
-    ctx.fillText("#"+(i+1), 88, rowY+60);
-    // Logo
-    if (team) await drawLogo(team.logo, 200, rowY+48, 72);
+    ctx.fillText("#"+(i+1), PAD+16, rowY + ROW_H/2 + 12);
+
+    // Team logo
+    const logoSize = 88;
+    const logoX = PAD + 90;
+    const logoY = rowY + (ROW_H-12)/2 - logoSize/2;
+    if (team) {
+      const logoImg = await loadImg(LOGO(team.logo));
+      if (logoImg) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(logoX, logoY, logoSize, logoSize, 10);
+        ctx.clip();
+        ctx.drawImage(logoImg, logoX, logoY, logoSize, logoSize);
+        ctx.restore();
+      }
+    }
+
     // Team name
-    ctx.font = "600 34px Inter";
-    ctx.fillStyle = isChamp ? "#fbbf24" : "#ffffff";
+    ctx.font = `${isChamp?"700":"600"} 38px Inter`;
+    ctx.fillStyle = isChamp ? "#92400e" : "#0f172a";
     ctx.textAlign = "left";
-    ctx.fillText(team?.name || top5[i], 260, rowY+56);
+    // Truncate if too long
+    const maxW = isChamp ? 420 : 580;
+    let teamName = team?.name || top5[i];
+    ctx.font = `${isChamp?"700":"600"} 38px Inter`;
+    while (ctx.measureText(teamName).width > maxW && teamName.length > 4) {
+      teamName = teamName.slice(0,-1);
+    }
+    if (teamName !== (team?.name || top5[i])) teamName += "…";
+    ctx.fillText(teamName, logoX + logoSize + 20, rowY + ROW_H/2 + 13);
+
     // Champion badge
     if (isChamp) {
-      roundRect(W-220, rowY+24, 148, 48, 24, "rgba(245,158,11,0.2)", "rgba(245,158,11,0.5)");
-      ctx.font = "700 26px Inter";
-      ctx.fillStyle = "#f59e0b";
+      const badgeX = W - PAD - 210;
+      const badgeY = rowY + (ROW_H-12)/2 - 26;
+      roundRect(badgeX, badgeY, 152, 52, 26, "rgba(245,158,11,0.15)", "rgba(245,158,11,0.6)", 2);
+      ctx.font = "700 24px Inter";
+      ctx.fillStyle = "#b45309";
       ctx.textAlign = "center";
-      ctx.fillText("★ CHAMPION", W-146, rowY+54);
+      ctx.fillText("★ CHAMPION", badgeX + 76, badgeY + 34);
     }
   }
-  y += top5.length * 110 + 24;
+
+  y += top5.length * ROW_H + 24;
 
   // ── Divider ──
-  ctx.fillStyle = "rgba(255,255,255,0.08)";
-  ctx.fillRect(60, y, W-120, 2);
-  y += 36;
+  ctx.fillStyle = "rgba(0,0,0,0.08)";
+  ctx.fillRect(PAD, y, W-PAD*2, 1.5);
+  y += 28;
 
-  // ── MVP section ──
-  sectionLabel("MVP Picks", y); y += 48;
+  // ── MVP section — two columns ──
+  ctx.font = "700 28px Inter";
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.textAlign = "left";
+  ctx.letterSpacing = "4px";
+  ctx.fillText("MVP PICKS", PAD, y);
+  ctx.letterSpacing = "0px";
+  ctx.fillStyle = "#7c3aed";
+  ctx.fillRect(PAD, y+6, 44, 3);
+  y += 30;
 
-  // Two columns
-  const colW = (W-160)/2;
-  const drawMvpCol = async (label, playerName, teamId, colX) => {
-    const team = TEAMS.find(t=>t.id===teamId || t.players?.includes(playerName));
-    ctx.font = "600 24px Inter";
-    ctx.fillStyle = "rgba(148,163,184,0.8)";
+  const colW = (W - PAD*2 - 24) / 2;
+  const drawMvpBox = async (label, playerName, colX, bY) => {
+    const team = TEAMS.find(t => t.players?.includes(playerName));
+    roundRect(colX, bY, colW, 148, 14, "rgba(0,0,0,0.04)", "rgba(0,0,0,0.08)", 1.5);
+    // label
+    ctx.font = "600 22px Inter";
+    ctx.fillStyle = "rgba(0,0,0,0.4)";
     ctx.textAlign = "left";
-    ctx.fillText(label, colX, y);
-    roundRect(colX, y+10, colW-10, 90, 12, "rgba(255,255,255,0.04)", "rgba(255,255,255,0.08)");
-    if (team) await drawLogo(team.logo, colX+45, y+55, 56);
+    ctx.fillText(label.toUpperCase(), colX+14, bY+30);
+    // logo
+    if (team) {
+      const li = await loadImg(LOGO(team.logo));
+      if (li) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(colX+14, bY+44, 56, 56, 8);
+        ctx.clip();
+        ctx.drawImage(li, colX+14, bY+44, 56, 56);
+        ctx.restore();
+      }
+    }
+    // player name
     ctx.font = "700 30px Inter";
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = "#0f172a";
     ctx.textAlign = "left";
-    ctx.fillText(playerName || "-", colX+80, y+62);
+    let pname = playerName || "-";
+    while (ctx.measureText(pname).width > colW - 90 && pname.length > 3) pname = pname.slice(0,-1);
+    ctx.fillText(pname, colX + 80, bY + 80);
+    if (team) {
+      ctx.font = "500 22px Inter";
+      ctx.fillStyle = "rgba(0,0,0,0.4)";
+      ctx.fillText(SHORT[team.name] || team.name.split(" ")[0], colX + 80, bY + 112);
+    }
   };
 
-  await drawMvpCol("Finals MVP", picks.finalsMvp?.[0], null, 80);
-  await drawMvpCol("Event MVP", picks.eventMvp?.[0], null, 80+colW+20);
-  y += 130;
+  await drawMvpBox("Finals MVP", picks.finalsMvp?.[0], PAD, y);
+  await drawMvpBox("Event MVP", picks.eventMvp?.[0], PAD + colW + 24, y);
+  y += 168;
 
   // ── IGL + Kills ──
-  const drawInfoCol = async (label, value, teamId, colX) => {
-    const team = TEAMS.find(t=>t.name===value||t.igl===value);
-    ctx.font = "600 24px Inter";
-    ctx.fillStyle = "rgba(148,163,184,0.8)";
+  const drawInfoBox = async (label, value, colX, bY) => {
+    const team = TEAMS.find(t => t.name === value || t.igl === value);
+    roundRect(colX, bY, colW, 140, 14, "rgba(0,0,0,0.04)", "rgba(0,0,0,0.08)", 1.5);
+    ctx.font = "600 22px Inter";
+    ctx.fillStyle = "rgba(0,0,0,0.4)";
     ctx.textAlign = "left";
-    ctx.fillText(label, colX, y);
-    roundRect(colX, y+10, colW-10, 90, 12, "rgba(255,255,255,0.04)", "rgba(255,255,255,0.08)");
-    if (team) await drawLogo(team.logo, colX+45, y+55, 56);
-    ctx.font = "700 30px Inter";
-    ctx.fillStyle = "#ffffff";
-    ctx.textAlign = "left";
-    ctx.fillText(value || "-", colX+80, y+62);
+    ctx.fillText(label.toUpperCase(), colX+14, bY+30);
+    if (team) {
+      const li = await loadImg(LOGO(team.logo));
+      if (li) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(colX+14, bY+42, 56, 56, 8);
+        ctx.clip();
+        ctx.drawImage(li, colX+14, bY+42, 56, 56);
+        ctx.restore();
+      }
+    }
+    ctx.font = "700 28px Inter";
+    ctx.fillStyle = "#0f172a";
+    let val = value || "-";
+    while (ctx.measureText(val).width > colW - 88 && val.length > 3) val = val.slice(0,-1);
+    ctx.fillText(val, colX+80, bY+76);
   };
 
-  await drawInfoCol("Best IGL", picks.bestIgl, null, 80);
-  await drawInfoCol("Most Kills", picks.mostFinishes, null, 80+colW+20);
-  y += 130;
+  await drawInfoBox("Best IGL", picks.bestIgl, PAD, y);
+  await drawInfoBox("Most Kills", picks.mostFinishes, PAD + colW + 24, y);
+  y += 158;
 
-  // ── Score (if published) ──
+  // ── Score badge (if published) ──
   if (publishedResults && picks.score != null) {
-    ctx.fillStyle = "rgba(255,255,255,0.08)";
-    ctx.fillRect(60, y, W-120, 2);
-    y += 30;
-    roundRect(W/2-160, y, 320, 100, 16, "rgba(26,86,219,0.3)", "rgba(26,86,219,0.6)");
-    ctx.font = "600 26px Inter";
-    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.fillStyle = "rgba(0,0,0,0.08)";
+    ctx.fillRect(PAD, y, W-PAD*2, 1.5);
+    y += 20;
+    roundRect(W/2-160, y, 320, 90, 16, "rgba(26,86,219,0.1)", "rgba(26,86,219,0.4)", 2);
+    ctx.font = "600 22px Inter";
+    ctx.fillStyle = "rgba(26,86,219,0.7)";
     ctx.textAlign = "center";
-    ctx.fillText("PREDICTION SCORE", W/2, y+36);
-    ctx.font = "700 56px Rajdhani";
-    ctx.fillStyle = "#60a5fa";
-    ctx.fillText((picks.score || 0)+" pts", W/2, y+86);
-    y += 130;
+    ctx.fillText("PREDICTION SCORE", W/2, y+30);
+    ctx.font = "700 48px Rajdhani";
+    ctx.fillStyle = "#1a56db";
+    ctx.fillText((picks.score || 0)+" pts", W/2, y+74);
   }
-
-  // ── Bottom ──
-  ctx.fillStyle = "rgba(255,255,255,0.08)";
-  ctx.fillRect(60, H-180, W-120, 2);
-
-  // EsportsAmaze logo
-  const eaLogo = await loadImg("/logos/esportsamaze_singleline.png");
-  if (eaLogo) {
-    const lw = 280, lh = eaLogo.height*(280/eaLogo.width);
-    ctx.drawImage(eaLogo, W/2-lw/2, H-160, lw, lh);
-  }
-
-  // URL
-  ctx.font = "600 28px Inter";
-  ctx.fillStyle = "rgba(255,255,255,0.4)";
-  ctx.textAlign = "center";
-  ctx.fillText("pickem.esportsamaze.in", W/2, H-60);
 
   return canvas;
 }
