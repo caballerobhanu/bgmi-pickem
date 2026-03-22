@@ -527,7 +527,7 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(uname, 540, 300);
+  ctx.fillText(uname, 540, 295);
   ctx.restore();
 
   // ── Content zone: y=340 to y=1755 (1415px available) ──
@@ -1875,6 +1875,10 @@ export default function App() {
           </div>
           <div className="footer-made">
             Made with ❤️ by EsportsAmaze · BGIS 2026 Grand Finals Pick'em
+          </div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,.18)",lineHeight:1.7,textAlign:"center",maxWidth:820,margin:"14px auto 0",padding:"12px 16px",borderTop:"1px solid rgba(255,255,255,.07)"}}>
+            <strong style={{color:"rgba(255,255,255,.28)",display:"block",marginBottom:4,fontSize:11,letterSpacing:"0.05em"}}>DISCLAIMER</strong>
+            This Pick'em is an independent, fan-made community project created by EsportsAmaze for entertainment purposes only. It is not affiliated with, endorsed by, sponsored by, or in any way officially connected with Krafton Inc., BGMI (Battlegrounds Mobile India), Battlegrounds Mobile India Series (BGIS), or any of the participating teams, players, or organisations featured herein. All team names, logos, player names, and tournament branding are the property of their respective owners and are used here solely for identification and fan engagement purposes under fair use. No commercial activity, paid promotion, or advertising is conducted through this platform. No real money, prizes, or monetary rewards are involved. All picks and predictions are purely for fun and do not constitute gambling, betting, or any form of wagering. EsportsAmaze does not claim ownership of any third-party intellectual property displayed on this platform. If you are a rights holder and have concerns, please contact us at connect@esportsamaze.com.
           </div>
         </div>
 
