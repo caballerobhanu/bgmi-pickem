@@ -259,8 +259,8 @@ const CSS = `
   *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
   html { scroll-behavior:smooth; }
   body { background:#f0f4ff; font-family:'Inter',sans-serif; color:#0f172a; -webkit-font-smoothing:antialiased; overflow-x:hidden; }
-  .app { min-height:100vh; padding-bottom:80px; }
-  .wrap { max-width:1200px; margin:0 auto; padding:0 24px; }
+  .app { min-height:100vh; display:flex; flex-direction:column; }
+  .wrap { max-width:1200px; margin:0 auto; padding:0 24px; flex:1; }
 
   .hero { background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 50%,#1a56db 100%); padding:28px 16px 24px; text-align:center; position:relative; overflow:hidden; }
   .hero::after { content:''; position:absolute; inset:0; background:radial-gradient(ellipse at 50% 120%,rgba(26,86,219,.25),transparent 70%); pointer-events:none; }
@@ -279,6 +279,7 @@ const CSS = `
   .tour-link { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:600; color:#fff; text-decoration:none; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.25); border-radius:20px; padding:4px 11px; transition:all .15s; }
   .tour-link:hover { background:rgba(255,255,255,.2); }
 
+  .content-grow { flex:1; display:flex; flex-direction:column; }
   .score-strip { background:#fff; border-bottom:1px solid #e2e8f0; padding:7px 16px; display:flex; gap:14px; overflow-x:auto; font-size:11px; font-weight:600; color:#475569; scrollbar-width:none; }
   .score-strip::-webkit-scrollbar { display:none; }
   .si { display:flex; align-items:center; gap:4px; white-space:nowrap; }
@@ -450,7 +451,7 @@ const CSS = `
   @media(max-width:480px) { .topbar-brand { display:none; } .topbar-social span { display:none; } .topbar-social { padding:5px 7px; } }
 
   /* Footer */
-  .footer { background:#0f172a; padding:28px 16px 24px; margin-top:40px; }
+  .footer { background:#0f172a; padding:28px 16px 24px; margin-top:auto; }
   .footer-logo { height:38px; object-fit:contain; opacity:.9; display:block; margin:0 auto 18px; }
   .footer-links { display:flex; justify-content:center; gap:16px; flex-wrap:wrap; margin-bottom:14px; }
   .footer-link { font-size:11px; font-weight:600; color:rgba(255,255,255,.5); text-decoration:none; transition:color .15s; }
@@ -937,7 +938,7 @@ export default function App() {
       <div className="app">
         {/* Top bar */}
         <div className="topbar">
-          <div className="topbar-brand">BGIS 2026 Pick'em by <span>EsportsAmaze</span></div>
+          <div className="topbar-brand">BGIS 2026 Pick'em by <span>eSportsAmaze</span></div>
           <div className="topbar-socials">
             <a href="https://instagram.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="topbar-social" title="Instagram">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
@@ -1094,7 +1095,7 @@ export default function App() {
 
         {/* Top bar */}
         <div className="topbar">
-          <div className="topbar-brand">BGIS 2026 Pick'em by <span>eSportsAmaze</span></div>
+          <div className="topbar-brand">BGIS 2026 Pick'em by <span>EsportsAmaze</span></div>
           <div className="topbar-socials">
             <a href="https://instagram.com/esportsamaze" target="_blank" rel="noopener noreferrer" className="topbar-social" title="Instagram">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
@@ -1142,7 +1143,7 @@ export default function App() {
 
         {/* PICKS TAB */}
         {tab==="picks"&&(
-          <div className="wrap" style={{paddingTop:18}}>
+          <div className="wrap" style={{paddingTop:18,flex:1}}>
             {!meta?<div className="loading"><div className="spinner"/>Loading...</div>:(
               <>
                 {!closed&&(
@@ -1161,7 +1162,7 @@ export default function App() {
                         <div className="auth-title">Enter your username</div>
                         <div className="auth-sub">Pick any username (letters, numbers, underscores). You'll use a 6-digit PIN from other devices.</div>
                         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                          <input className="input" style={{flex:1,minWidth:150}} placeholder="e.g. bgmi_fan_2026" value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleConfirm()}/>
+                          <input className="input" style={{flex:1,minWidth:150}} placeholder="e.g. eSportsAmaze" value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleConfirm()}/>
                           <button className="btn btn-primary" onClick={handleConfirm} disabled={idLoading||!usernameInput.trim()}>{idLoading?"Checking...":"Continue →"}</button>
                         </div>
                       </div>
@@ -1328,7 +1329,7 @@ export default function App() {
 
         {/* MY SUBMISSION TAB */}
         {tab==="my"&&(
-          <div className="wrap" style={{paddingTop:18}}>
+          <div className="wrap" style={{paddingTop:18,flex:1}}>
             {!identity?(
               <div className="locked"><div className="locked-icon">👤</div><div className="locked-title">Sign in first</div><div className="locked-sub">Go to Make Picks, enter your username and PIN.</div><button className="btn btn-primary" style={{marginTop:13}} onClick={()=>setTab("picks")}>Make Picks →</button></div>
             ):!mySubmission?(
@@ -1382,7 +1383,7 @@ export default function App() {
 
         {/* LEADERBOARD TAB */}
         {tab==="lb"&&(
-          <div className="wrap" style={{paddingTop:18}}>
+          <div className="wrap" style={{paddingTop:18,flex:1}}>
             {!closed&&!meta?.published?(
               <div className="locked"><div className="locked-icon">🔒</div><div className="locked-title">Leaderboard Hidden</div><div className="locked-sub">Visible after Mar 27 at 1 PM IST.</div></div>
             ):(
@@ -1550,7 +1551,7 @@ export default function App() {
             <a href="mailto:connect@esportsamaze.com">connect@esportsamaze.com</a> · <a href="https://esportsamaze.com" target="_blank" rel="noopener noreferrer">esportsamaze.com</a>
           </div>
           <div className="footer-made">
-            Made with ❤️ by EsportsAmaze · BGIS 2026 Grand Finals Pick'em
+            Made with ❤️ by eSportsAmaze · BGIS 2026 Grand Finals Pick'em
           </div>
         </div>
 
