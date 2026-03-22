@@ -1548,8 +1548,9 @@ export default function App() {
                       <button className="btn btn-outline" onClick={()=>setSubmitted(false)}>Edit Picks</button>
                     </div>
                     {(() => {
-                      const myEntry = scoredLb?.find(s=>s.username===identity?.username);
-                      const rank = myEntry ? scoredLb.indexOf(myEntry)+1 : null;
+                      const allEntries = Object.values(lbPages).flat();
+                      const myEntry = allEntries.find(s=>s.username===identity?.username);
+                      const rank = myEntry ? allEntries.indexOf(myEntry)+1 : null;
                       const picksWithScore = {...(mySubmission||{top5,champion,finalsMvp,eventMvp,bestIgl,mostFinishes}), score: myEntry?.score??null, fantasyScore: myEntry?.fantasyScore??null, rank};
                       return <ShareButtons picks={picksWithScore} publishedResults={publishedResults} fantasyData={fantasyData} identity={identity}/>;
                     })()}
@@ -1706,8 +1707,9 @@ export default function App() {
                   </div>
                   {!closed&&<div style={{marginTop:14}}><button className="btn btn-outline" onClick={()=>{setSubmitted(false);setTab("picks");}}>✏️ Edit Picks</button></div>}
                   {(() => {
-                    const myEntry = scoredLb?.find(s=>s.username===identity?.username);
-                    const rank = myEntry ? scoredLb.indexOf(myEntry)+1 : null;
+                    const allEntries = Object.values(lbPages).flat();
+                    const myEntry = allEntries.find(s=>s.username===identity?.username);
+                    const rank = myEntry ? allEntries.indexOf(myEntry)+1 : null;
                     const picksWithScore = {...mySubmission, score: myEntry?.score??null, fantasyScore: myEntry?.fantasyScore??null, rank};
                     return <ShareButtons picks={picksWithScore} publishedResults={publishedResults} fantasyData={fantasyData} identity={identity}/>;
                   })()}
