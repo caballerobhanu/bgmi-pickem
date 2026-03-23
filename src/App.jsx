@@ -1029,12 +1029,16 @@ export default function App() {
     load();
   }, [identity?.username]);
 
-  // ── Load leaderboard meta ──
+  // ── Load leaderboard meta (ref-guarded, no duplicate reads) ──
+  const lbMetaLoading = useRef(false);
   const loadLbMeta = useCallback(async () => {
-    if (!meta) return;
+    if (!meta || lbMetaLoading.current) return;
+    const canLoad = isClosed() || meta.published || IS_ADMIN;
+    if (!canLoad) return;
     const version = meta.cacheVersion||0;
     const cached = getCachedLbMeta(version);
-    if (cached) { setLbMetaInfo(cached); return; }
+    if (cached) { setLbMetaInfo(cached); setSubCount(cached.count||0); return; }
+    lbMetaLoading.current = true;
     try {
       const snap = await getDoc(doc(db,"pickem",LB_META_DOC));
       if (snap.exists()) {
@@ -1044,25 +1048,23 @@ export default function App() {
         setSubCount(d.count||0);
       }
     } catch {}
+    lbMetaLoading.current = false;
   }, [meta]);
 
-  useEffect(() => {
-    if ((isClosed()||meta?.published||IS_ADMIN) && meta) loadLbMeta();
-  }, [meta, loadLbMeta]);
+  useEffect(() => { loadLbMeta(); }, [meta]);
 
-  // ── Load LB data when stats tab opened ──
   useEffect(() => {
-    if ((tab==="stats"||tab==="lb") && meta && (isClosed()||meta?.published||IS_ADMIN)) {
-      loadLbMeta();
-    }
-  }, [tab, meta, loadLbMeta]);
+    if (tab==="lb"||tab==="stats") loadLbMeta();
+  }, [tab]);
 
-  // ── Load a leaderboard page ──
+  // ── Load a leaderboard page (ref-guarded) ──
+  const lbPageLoading = useRef({});
   const loadLbPage = useCallback(async (page) => {
-    if (!meta||!lbMetaInfo) return;
+    if (!meta || !lbMetaInfo || lbPageLoading.current[page]) return;
     const version = meta.cacheVersion||0;
     const cached = getCachedLbPage(version, page);
     if (cached) { setLbPages(p=>({...p,[page]:cached})); return; }
+    lbPageLoading.current[page] = true;
     setLbLoading(true);
     try {
       const snap = await getDoc(doc(db,"pickem",LB_PAGE_PREFIX+page));
@@ -1072,17 +1074,17 @@ export default function App() {
         setCachedLbPage(version, page, entries);
       }
     } catch {}
+    lbPageLoading.current[page] = false;
     setLbLoading(false);
   }, [meta, lbMetaInfo]);
 
   useEffect(() => {
     if (lbMetaInfo && !(lbPage in lbPages)) loadLbPage(lbPage);
-  }, [lbPage, lbMetaInfo, lbPages, loadLbPage]);
+  }, [lbPage, lbMetaInfo]);
 
-  // Load page 0 when stats tab opened
   useEffect(() => {
-    if (tab==="stats" && lbMetaInfo && !(0 in lbPages)) loadLbPage(0);
-  }, [tab, lbMetaInfo, lbPages, loadLbPage]);
+    if ((tab==="stats"||tab==="lb") && lbMetaInfo && !(0 in lbPages)) loadLbPage(0);
+  }, [tab, lbMetaInfo]);
 
   // ── Auth ──
   const handleConfirm = async () => {
@@ -1181,16 +1183,14 @@ export default function App() {
 
   const handleSaveResults = async () => {
     try {
-      const fs=await getDoc(doc(db,"pickem",META_DOC)); const f=fs.exists()?fs.data():{};
-      await setDoc(doc(db,"pickem",META_DOC),{adminSecret:ADMIN_SECRET,...f,results},{merge:true});
+      await setDoc(doc(db,"pickem",META_DOC),{adminSecret:ADMIN_SECRET,results},{merge:true});
       setMeta(p=>({...p,results})); invalidateMetaCache(); showToast("Results saved!");
     } catch { showToast("Save failed","error"); }
   };
 
   const handlePublishToggle = async (publish) => {
     try {
-      const fs=await getDoc(doc(db,"pickem",META_DOC)); const f=fs.exists()?fs.data():{};
-      await setDoc(doc(db,"pickem",META_DOC),{adminSecret:ADMIN_SECRET,...f,published:publish},{merge:true});
+      await setDoc(doc(db,"pickem",META_DOC),{adminSecret:ADMIN_SECRET,published:publish},{merge:true});
       setMeta(p=>({...p,published:publish})); invalidateMetaCache();
       if (publish) await bakeLeaderboard();
       showToast(publish?"Scores published!":"Scores hidden");
@@ -1203,9 +1203,8 @@ export default function App() {
       const snap = await getDocs(collection(db,"pickem",META_DOC,SUBS_COL));
       const allSubs = snap.docs.map(d=>d.data()).filter(d=>!d.deleted);
 
-      // Fetch fresh meta for results
-      const metaSnap = await getDoc(doc(db,"pickem",META_DOC));
-      const metaData = metaSnap.exists()?metaSnap.data():{};
+      // Use current meta state (already loaded, no extra read needed)
+      const metaData = meta||{};
       const currentResults = metaData.results||null;
       const currentFantasy = metaData.fantasy||null;
 
@@ -1229,7 +1228,7 @@ export default function App() {
       // Bump cacheVersion and write lb meta
       const newVersion = (metaData.cacheVersion||0)+1;
       await setDoc(doc(db,"pickem",LB_META_DOC),{adminSecret:ADMIN_SECRET,totalPages,count:allSubs.length,cacheVersion:newVersion,bakedAt:new Date().toISOString()});
-      await setDoc(doc(db,"pickem",META_DOC),{adminSecret:ADMIN_SECRET,...metaData,cacheVersion:newVersion},{merge:true});
+      await setDoc(doc(db,"pickem",META_DOC),{adminSecret:ADMIN_SECRET,cacheVersion:newVersion},{merge:true});
 
       // Invalidate all local caches
       invalidateLbCache(); invalidateMetaCache();
@@ -1242,8 +1241,7 @@ export default function App() {
   const handleSaveFantasy = async () => {
     setAdminFantasySaving(true);
     try {
-      const fs=await getDoc(doc(db,"pickem",META_DOC)); const f=fs.exists()?fs.data():{};
-      await setDoc(doc(db,"pickem",META_DOC),{adminSecret:ADMIN_SECRET,...f,fantasy:adminFantasy},{merge:true});
+      await setDoc(doc(db,"pickem",META_DOC),{adminSecret:ADMIN_SECRET,fantasy:adminFantasy},{merge:true});
       setFantasyData(adminFantasy); invalidateMetaCache();
       showToast("Fantasy saved!");
     } catch { showToast("Save failed","error"); }
