@@ -287,9 +287,13 @@ const CSS = `
 
   .nav { background:#fff; border-bottom:2px solid #e2e8f0; display:flex; overflow-x:auto; position:sticky; top:0; z-index:50; box-shadow:0 2px 8px rgba(15,23,42,.06); scrollbar-width:none; }
   .nav::-webkit-scrollbar { display:none; }
-  .nb { flex-shrink:0; padding:13px 18px; font-family:'Inter',sans-serif; font-size:13px; font-weight:600; color:#64748b; background:none; border:none; border-bottom:3px solid transparent; margin-bottom:-2px; cursor:pointer; white-space:nowrap; transition:all .15s; }
+  .nb { flex-shrink:0; padding:13px 16px; font-family:'Inter',sans-serif; font-size:13px; font-weight:600; color:#64748b; background:none; border:none; border-bottom:3px solid transparent; margin-bottom:-2px; cursor:pointer; white-space:nowrap; transition:all .15s; display:flex; align-items:center; gap:6px; }
   .nb:hover { color:#0f172a; }
   .nb.active { color:#1a56db; border-bottom-color:#1a56db; }
+  .nb svg { flex-shrink:0; }
+  .nb-short { display:none; }
+  .nb-full { display:inline; }
+  @media(max-width:600px) { .nb { padding:11px 10px; font-size:12px; gap:5px; } .nb-short { display:inline; } .nb-full { display:none; } }
 
   .card { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:18px; margin-bottom:14px; }
   .card-title { font-family:'Rajdhani',sans-serif; font-size:17px; font-weight:700; color:#0f172a; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #f1f5f9; display:flex; align-items:center; gap:8px; }
@@ -1561,9 +1565,26 @@ export default function App() {
         </div>
 
         <div className="nav">
-          {[{id:"picks",l:"🎮 Make Picks"},{id:"my",l:"📋 My Submission"},{id:"lb",l:"🏆 Leaderboard"},{id:"stats",l:"📊 Statistics"}].map(t=>(
-            <button key={t.id} className={`nb${tab===t.id?" active":""}`} onClick={()=>setTab(t.id)}>{t.l}</button>
-          ))}
+          <button className={`nb${tab==="picks"?" active":""}`} onClick={()=>setTab("picks")}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>
+            <span className="nb-full">Make Picks</span>
+            <span className="nb-short">Picks</span>
+          </button>
+          <button className={`nb${tab==="my"?" active":""}`} onClick={()=>setTab("my")}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <span className="nb-full">My Submission</span>
+            <span className="nb-short">Mine</span>
+          </button>
+          <button className={`nb${tab==="lb"?" active":""}`} onClick={()=>setTab("lb")}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            <span className="nb-full">Leaderboard</span>
+            <span className="nb-short">Ranks</span>
+          </button>
+          <button className={`nb${tab==="stats"?" active":""}`} onClick={()=>setTab("stats")}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.21 15.89A10 10 0 118 2.83"/><path d="M22 12A10 10 0 0012 2v10z"/></svg>
+            <span className="nb-full">Statistics</span>
+            <span className="nb-short">Stats</span>
+          </button>
         </div>
 
         {/* PICKS TAB */}
