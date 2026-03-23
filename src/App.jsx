@@ -463,6 +463,19 @@ const CSS = `
   .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.6); margin-top:12px; }
 
 
+  /* Stats */
+  .stat-card { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:18px; margin-bottom:14px; }
+  .stat-title { font-family:"Rajdhani",sans-serif; font-size:16px; font-weight:700; color:#0f172a; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid #f1f5f9; display:flex; align-items:center; gap:8px; }
+  .stat-row { display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+  .stat-label { font-size:12px; font-weight:600; color:#0f172a; min-width:160px; max-width:160px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; }
+  .stat-bar-wrap { flex:1; height:10px; background:#f1f5f9; border-radius:10px; overflow:hidden; }
+  .stat-bar { height:100%; border-radius:10px; transition:width .4s ease; }
+  .stat-pct { font-size:11px; font-weight:700; color:#64748b; min-width:36px; text-align:right; flex-shrink:0; }
+  .stat-section { margin-bottom:8px; }
+  .stat-sub { font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:#94a3b8; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+  .stat-sub-dot { width:8px; height:8px; border-radius:50%; display:inline-block; flex-shrink:0; }
+  @media(max-width:600px) { .stat-label { min-width:120px; max-width:120px; } }
+
   @media(max-width:600px) {
     .hero { padding:20px 14px 18px; }
     .hero-logo { height:52px; }
@@ -752,9 +765,13 @@ function ShareButtons({ picks, publishedResults, fantasyData, identity }) {
         const file = new File([blob], "bgis2026_picks.png", { type: "image/png" });
         if (navigator.canShare({ files: [file] })) {
           await navigator.share({ title: "BGIS 2026 Finals Pick'em", text, files: [file] });
-          return;
+          return; // user shared or cancelled — either way stop here
         }
-      } catch {}
+      } catch(err) {
+        // AbortError = user cancelled share sheet — do nothing
+        if (err.name === "AbortError") return;
+        // Other error — fall through to Twitter intent
+      }
     }
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
     window.open(url, "_blank");
@@ -1398,6 +1415,149 @@ export default function App() {
             </>
           )}
         </div>
+
+        {/* ═══ STATISTICS ═══ */}
+        {tab==="stats"&&(
+          <div className="wrap" style={{paddingTop:18,flex:1}}>
+            {(!closed && !IS_ADMIN)?(
+              <div className="locked"><div className="locked-icon">🔒</div><div className="locked-title">Statistics Hidden</div><div className="locked-sub">Available after Mar 27 at 1 PM IST once submissions close.</div></div>
+            ):!lbData||lbData.length===0?(
+              <div className="loading"><div className="spinner"/>Loading stats...</div>
+            ):(()=>{
+              const total = lbData.length;
+              if (total === 0) return <div className="locked"><div className="locked-icon">📊</div><div className="locked-title">No submissions yet</div></div>;
+
+              // ── Compute stats ──
+              // Teams: top5 picks and champion picks
+              const teamTop5Count = {}, teamChampCount = {};
+              TEAMS.forEach(t => { teamTop5Count[t.name]=0; teamChampCount[t.name]=0; });
+              lbData.forEach(s => {
+                (s.top5||[]).forEach(t => { if(teamTop5Count[t]!=null) teamTop5Count[t]++; });
+                if (s.champion && teamChampCount[s.champion]!=null) teamChampCount[s.champion]++;
+              });
+              const top5Sorted = [...TEAMS].sort((a,b)=>teamTop5Count[b.name]-teamTop5Count[a.name]);
+              const champSorted = [...TEAMS].sort((a,b)=>teamChampCount[b.name]-teamChampCount[a.name]).filter(t=>teamChampCount[t.name]>0);
+
+              // Finals MVP: any pick and 1st pick
+              const fmvpAny = {}, fmvp1st = {};
+              lbData.forEach(s => {
+                (s.finalsMvp||[]).forEach((p,i) => { fmvpAny[p]=(fmvpAny[p]||0)+1; if(i===0) fmvp1st[p]=(fmvp1st[p]||0)+1; });
+              });
+              const fmvpAnySorted = Object.entries(fmvpAny).sort((a,b)=>b[1]-a[1]).slice(0,10);
+              const fmvp1stSorted = Object.entries(fmvp1st).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+              // Event MVP: any pick and 1st pick
+              const emvpAny = {}, emvp1st = {};
+              lbData.forEach(s => {
+                (s.eventMvp||[]).forEach((p,i) => { emvpAny[p]=(emvpAny[p]||0)+1; if(i===0) emvp1st[p]=(emvp1st[p]||0)+1; });
+              });
+              const emvpAnySorted = Object.entries(emvpAny).sort((a,b)=>b[1]-a[1]).slice(0,10);
+              const emvp1stSorted = Object.entries(emvp1st).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+              // Best IGL
+              const iglCount = {};
+              lbData.forEach(s => { if(s.bestIgl) iglCount[s.bestIgl]=(iglCount[s.bestIgl]||0)+1; });
+              const iglSorted = Object.entries(iglCount).sort((a,b)=>b[1]-a[1]);
+
+              // Most Kills
+              const killsCount = {};
+              lbData.forEach(s => { if(s.mostFinishes) killsCount[s.mostFinishes]=(killsCount[s.mostFinishes]||0)+1; });
+              const killsSorted = Object.entries(killsCount).sort((a,b)=>b[1]-a[1]);
+
+              const Bar = ({pct, color}) => (
+                <div className="stat-bar-wrap">
+                  <div className="stat-bar" style={{width:`${pct}%`, background:color}}/>
+                </div>
+              );
+
+              const StatRow = ({label, count, maxCount, color}) => {
+                const pct = maxCount > 0 ? Math.round((count/total)*100) : 0;
+                const barPct = maxCount > 0 ? Math.round((count/maxCount)*100) : 0;
+                return (
+                  <div className="stat-row">
+                    <div className="stat-label" title={label}>{label}</div>
+                    <Bar pct={barPct} color={color}/>
+                    <div className="stat-pct">{pct}%</div>
+                  </div>
+                );
+              };
+
+              return (
+                <>
+                  <div style={{fontSize:12,color:"#64748b",marginBottom:14}}>Based on <strong style={{color:"#0f172a"}}>{total}</strong> submission{total!==1?"s":""}</div>
+
+                  {/* TEAMS */}
+                  <div className="stat-card">
+                    <div className="stat-title">🏅 Team Picks</div>
+                    <div className="stat-section">
+                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Top 5 picks (any position)</div>
+                      {top5Sorted.map(t=>(
+                        <StatRow key={t.id+"t5"} label={t.name} count={teamTop5Count[t.name]} maxCount={teamTop5Count[top5Sorted[0].name]} color="#1a56db"/>
+                      ))}
+                    </div>
+                    <div className="stat-section" style={{marginTop:16}}>
+                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>Champion picks</div>
+                      {champSorted.map(t=>(
+                        <StatRow key={t.id+"ch"} label={t.name} count={teamChampCount[t.name]} maxCount={teamChampCount[champSorted[0].name]} color="#f59e0b"/>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* FINALS MVP */}
+                  <div className="stat-card">
+                    <div className="stat-title">🎯 Finals MVP Picks</div>
+                    <div className="stat-section">
+                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Any pick (1st, 2nd or 3rd)</div>
+                      {fmvpAnySorted.map(([p,c])=>(
+                        <StatRow key={"fa"+p} label={p} count={c} maxCount={fmvpAnySorted[0][1]} color="#1a56db"/>
+                      ))}
+                    </div>
+                    <div className="stat-section" style={{marginTop:16}}>
+                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>1st choice (confident pick)</div>
+                      {fmvp1stSorted.map(([p,c])=>(
+                        <StatRow key={"f1"+p} label={p} count={c} maxCount={fmvp1stSorted[0][1]} color="#f59e0b"/>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* EVENT MVP */}
+                  <div className="stat-card">
+                    <div className="stat-title">🌟 Event MVP Picks</div>
+                    <div className="stat-section">
+                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Any pick (1st, 2nd or 3rd)</div>
+                      {emvpAnySorted.map(([p,c])=>(
+                        <StatRow key={"ea"+p} label={p} count={c} maxCount={emvpAnySorted[0][1]} color="#1a56db"/>
+                      ))}
+                    </div>
+                    <div className="stat-section" style={{marginTop:16}}>
+                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>1st choice (confident pick)</div>
+                      {emvp1stSorted.map(([p,c])=>(
+                        <StatRow key={"e1"+p} label={p} count={c} maxCount={emvp1stSorted[0][1]} color="#f59e0b"/>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* BEST IGL */}
+                  <div className="stat-card">
+                    <div className="stat-title">🎖️ Best IGL Picks</div>
+                    {iglSorted.map(([p,c])=>(
+                      <StatRow key={"igl"+p} label={p} count={c} maxCount={iglSorted[0][1]} color="#7c3aed"/>
+                    ))}
+                  </div>
+
+                  {/* MOST KILLS */}
+                  <div className="stat-card">
+                    <div className="stat-title">💀 Most Kills Team Picks</div>
+                    {killsSorted.map(([t,c])=>(
+                      <StatRow key={"k"+t} label={t} count={c} maxCount={killsSorted[0][1]} color="#ef4444"/>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        )}
+
         {toast&&<div className={`toast${toast.type==="error"?" err":""}`}>{toast.msg}</div>}
       </div>
     </>
@@ -1452,7 +1612,7 @@ export default function App() {
         </div>
 
         <div className="nav">
-          {[{id:"picks",l:"🎮 Make Picks"},{id:"my",l:"📋 My Submission"},{id:"lb",l:"🏆 Leaderboard"}].map(t=>(
+          {[{id:"picks",l:"🎮 Make Picks"},{id:"my",l:"📋 My Submission"},{id:"lb",l:"🏆 Leaderboard"},{id:"stats",l:"📊 Statistics"}].map(t=>(
             <button key={t.id} className={`nb${tab===t.id?" active":""}`} onClick={()=>setTab(t.id)}>{t.l}</button>
           ))}
         </div>
@@ -1861,6 +2021,149 @@ export default function App() {
                 )}
               </>
             )}
+          </div>
+        )}
+
+
+        {/* ═══ STATISTICS ═══ */}
+        {tab==="stats"&&(
+          <div className="wrap" style={{paddingTop:18,flex:1}}>
+            {(!closed && !IS_ADMIN)?(
+              <div className="locked"><div className="locked-icon">🔒</div><div className="locked-title">Statistics Hidden</div><div className="locked-sub">Available after Mar 27 at 1 PM IST once submissions close.</div></div>
+            ):!lbData||lbData.length===0?(
+              <div className="loading"><div className="spinner"/>Loading stats...</div>
+            ):(()=>{
+              const total = lbData.length;
+              if (total === 0) return <div className="locked"><div className="locked-icon">📊</div><div className="locked-title">No submissions yet</div></div>;
+
+              // ── Compute stats ──
+              // Teams: top5 picks and champion picks
+              const teamTop5Count = {}, teamChampCount = {};
+              TEAMS.forEach(t => { teamTop5Count[t.name]=0; teamChampCount[t.name]=0; });
+              lbData.forEach(s => {
+                (s.top5||[]).forEach(t => { if(teamTop5Count[t]!=null) teamTop5Count[t]++; });
+                if (s.champion && teamChampCount[s.champion]!=null) teamChampCount[s.champion]++;
+              });
+              const top5Sorted = [...TEAMS].sort((a,b)=>teamTop5Count[b.name]-teamTop5Count[a.name]);
+              const champSorted = [...TEAMS].sort((a,b)=>teamChampCount[b.name]-teamChampCount[a.name]).filter(t=>teamChampCount[t.name]>0);
+
+              // Finals MVP: any pick and 1st pick
+              const fmvpAny = {}, fmvp1st = {};
+              lbData.forEach(s => {
+                (s.finalsMvp||[]).forEach((p,i) => { fmvpAny[p]=(fmvpAny[p]||0)+1; if(i===0) fmvp1st[p]=(fmvp1st[p]||0)+1; });
+              });
+              const fmvpAnySorted = Object.entries(fmvpAny).sort((a,b)=>b[1]-a[1]).slice(0,10);
+              const fmvp1stSorted = Object.entries(fmvp1st).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+              // Event MVP: any pick and 1st pick
+              const emvpAny = {}, emvp1st = {};
+              lbData.forEach(s => {
+                (s.eventMvp||[]).forEach((p,i) => { emvpAny[p]=(emvpAny[p]||0)+1; if(i===0) emvp1st[p]=(emvp1st[p]||0)+1; });
+              });
+              const emvpAnySorted = Object.entries(emvpAny).sort((a,b)=>b[1]-a[1]).slice(0,10);
+              const emvp1stSorted = Object.entries(emvp1st).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+              // Best IGL
+              const iglCount = {};
+              lbData.forEach(s => { if(s.bestIgl) iglCount[s.bestIgl]=(iglCount[s.bestIgl]||0)+1; });
+              const iglSorted = Object.entries(iglCount).sort((a,b)=>b[1]-a[1]);
+
+              // Most Kills
+              const killsCount = {};
+              lbData.forEach(s => { if(s.mostFinishes) killsCount[s.mostFinishes]=(killsCount[s.mostFinishes]||0)+1; });
+              const killsSorted = Object.entries(killsCount).sort((a,b)=>b[1]-a[1]);
+
+              const Bar = ({pct, color}) => (
+                <div className="stat-bar-wrap">
+                  <div className="stat-bar" style={{width:`${pct}%`, background:color}}/>
+                </div>
+              );
+
+              const StatRow = ({label, count, maxCount, color}) => {
+                const pct = maxCount > 0 ? Math.round((count/total)*100) : 0;
+                const barPct = maxCount > 0 ? Math.round((count/maxCount)*100) : 0;
+                return (
+                  <div className="stat-row">
+                    <div className="stat-label" title={label}>{label}</div>
+                    <Bar pct={barPct} color={color}/>
+                    <div className="stat-pct">{pct}%</div>
+                  </div>
+                );
+              };
+
+              return (
+                <>
+                  <div style={{fontSize:12,color:"#64748b",marginBottom:14}}>Based on <strong style={{color:"#0f172a"}}>{total}</strong> submission{total!==1?"s":""}</div>
+
+                  {/* TEAMS */}
+                  <div className="stat-card">
+                    <div className="stat-title">🏅 Team Picks</div>
+                    <div className="stat-section">
+                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Top 5 picks (any position)</div>
+                      {top5Sorted.map(t=>(
+                        <StatRow key={t.id+"t5"} label={t.name} count={teamTop5Count[t.name]} maxCount={teamTop5Count[top5Sorted[0].name]} color="#1a56db"/>
+                      ))}
+                    </div>
+                    <div className="stat-section" style={{marginTop:16}}>
+                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>Champion picks</div>
+                      {champSorted.map(t=>(
+                        <StatRow key={t.id+"ch"} label={t.name} count={teamChampCount[t.name]} maxCount={teamChampCount[champSorted[0].name]} color="#f59e0b"/>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* FINALS MVP */}
+                  <div className="stat-card">
+                    <div className="stat-title">🎯 Finals MVP Picks</div>
+                    <div className="stat-section">
+                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Any pick (1st, 2nd or 3rd)</div>
+                      {fmvpAnySorted.map(([p,c])=>(
+                        <StatRow key={"fa"+p} label={p} count={c} maxCount={fmvpAnySorted[0][1]} color="#1a56db"/>
+                      ))}
+                    </div>
+                    <div className="stat-section" style={{marginTop:16}}>
+                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>1st choice (confident pick)</div>
+                      {fmvp1stSorted.map(([p,c])=>(
+                        <StatRow key={"f1"+p} label={p} count={c} maxCount={fmvp1stSorted[0][1]} color="#f59e0b"/>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* EVENT MVP */}
+                  <div className="stat-card">
+                    <div className="stat-title">🌟 Event MVP Picks</div>
+                    <div className="stat-section">
+                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Any pick (1st, 2nd or 3rd)</div>
+                      {emvpAnySorted.map(([p,c])=>(
+                        <StatRow key={"ea"+p} label={p} count={c} maxCount={emvpAnySorted[0][1]} color="#1a56db"/>
+                      ))}
+                    </div>
+                    <div className="stat-section" style={{marginTop:16}}>
+                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>1st choice (confident pick)</div>
+                      {emvp1stSorted.map(([p,c])=>(
+                        <StatRow key={"e1"+p} label={p} count={c} maxCount={emvp1stSorted[0][1]} color="#f59e0b"/>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* BEST IGL */}
+                  <div className="stat-card">
+                    <div className="stat-title">🎖️ Best IGL Picks</div>
+                    {iglSorted.map(([p,c])=>(
+                      <StatRow key={"igl"+p} label={p} count={c} maxCount={iglSorted[0][1]} color="#7c3aed"/>
+                    ))}
+                  </div>
+
+                  {/* MOST KILLS */}
+                  <div className="stat-card">
+                    <div className="stat-title">💀 Most Kills Team Picks</div>
+                    {killsSorted.map(([t,c])=>(
+                      <StatRow key={"k"+t} label={t} count={c} maxCount={killsSorted[0][1]} color="#ef4444"/>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
 
