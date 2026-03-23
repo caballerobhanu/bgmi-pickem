@@ -2018,7 +2018,7 @@ export default function App() {
 
               // Finals MVP: any pick and 1st pick
               const fmvpAny = {}, fmvp1st = {};
-              lbData.forEach(s => {
+              allLbData.forEach(s => {
                 (s.finalsMvp||[]).forEach((p,i) => { fmvpAny[p]=(fmvpAny[p]||0)+1; if(i===0) fmvp1st[p]=(fmvp1st[p]||0)+1; });
               });
               const fmvpAnySorted = Object.entries(fmvpAny).sort((a,b)=>b[1]-a[1]).slice(0,10);
@@ -2026,7 +2026,7 @@ export default function App() {
 
               // Event MVP: any pick and 1st pick
               const emvpAny = {}, emvp1st = {};
-              lbData.forEach(s => {
+              allLbData.forEach(s => {
                 (s.eventMvp||[]).forEach((p,i) => { emvpAny[p]=(emvpAny[p]||0)+1; if(i===0) emvp1st[p]=(emvp1st[p]||0)+1; });
               });
               const emvpAnySorted = Object.entries(emvpAny).sort((a,b)=>b[1]-a[1]).slice(0,10);
@@ -2034,12 +2034,12 @@ export default function App() {
 
               // Best IGL
               const iglCount = {};
-              lbData.forEach(s => { if(s.bestIgl) iglCount[s.bestIgl]=(iglCount[s.bestIgl]||0)+1; });
+              allLbData.forEach(s => { if(s.bestIgl) iglCount[s.bestIgl]=(iglCount[s.bestIgl]||0)+1; });
               const iglSorted = Object.entries(iglCount).sort((a,b)=>b[1]-a[1]);
 
               // Most Kills
               const killsCount = {};
-              lbData.forEach(s => { if(s.mostFinishes) killsCount[s.mostFinishes]=(killsCount[s.mostFinishes]||0)+1; });
+              allLbData.forEach(s => { if(s.mostFinishes) killsCount[s.mostFinishes]=(killsCount[s.mostFinishes]||0)+1; });
               const killsSorted = Object.entries(killsCount).sort((a,b)=>b[1]-a[1]);
 
               const Bar = ({pct, color}) => (
