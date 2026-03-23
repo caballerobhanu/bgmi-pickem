@@ -1047,8 +1047,15 @@ export default function App() {
   }, [meta]);
 
   useEffect(() => {
-    if ((isClosed()||meta?.published) && meta) loadLbMeta();
+    if ((isClosed()||meta?.published||IS_ADMIN) && meta) loadLbMeta();
   }, [meta, loadLbMeta]);
+
+  // ── Load LB data when stats tab opened ──
+  useEffect(() => {
+    if ((tab==="stats"||tab==="lb") && meta && (isClosed()||meta?.published||IS_ADMIN)) {
+      loadLbMeta();
+    }
+  }, [tab, meta, loadLbMeta]);
 
   // ── Load a leaderboard page ──
   const loadLbPage = useCallback(async (page) => {
@@ -1071,6 +1078,11 @@ export default function App() {
   useEffect(() => {
     if (lbMetaInfo && !(lbPage in lbPages)) loadLbPage(lbPage);
   }, [lbPage, lbMetaInfo, lbPages, loadLbPage]);
+
+  // Load page 0 when stats tab opened
+  useEffect(() => {
+    if (tab==="stats" && lbMetaInfo && !(0 in lbPages)) loadLbPage(0);
+  }, [tab, lbMetaInfo, lbPages, loadLbPage]);
 
   // ── Auth ──
   const handleConfirm = async () => {
@@ -1221,6 +1233,7 @@ export default function App() {
 
       // Invalidate all local caches
       invalidateLbCache(); invalidateMetaCache();
+      setLbMetaInfo({totalPages, count:allSubs.length, cacheVersion:newVersion});
 
       showToast("Baked "+allSubs.length+" entries into "+totalPages+" pages");
     } catch(e) { showToast("Bake failed","error"); console.error(e); }
@@ -1412,151 +1425,89 @@ export default function App() {
                   </table>
                 </div>
               </div>
+
+              {/* Admin Statistics - uses live adminSubs */}
+              {adminSubs.length>0&&(()=>{
+                const total = adminSubs.length;
+                const teamTop5Count={}, teamChampCount={};
+                TEAMS.forEach(t=>{teamTop5Count[t.name]=0;teamChampCount[t.name]=0;});
+                adminSubs.forEach(s=>{
+                  (s.top5||[]).forEach(t=>{if(teamTop5Count[t]!=null)teamTop5Count[t]++;});
+                  if(s.champion&&teamChampCount[s.champion]!=null)teamChampCount[s.champion]++;
+                });
+                const top5Sorted=[...TEAMS].sort((a,b)=>teamTop5Count[b.name]-teamTop5Count[a.name]);
+                const champSorted=[...TEAMS].sort((a,b)=>teamChampCount[b.name]-teamChampCount[a.name]).filter(t=>teamChampCount[t.name]>0);
+
+                const fmvpAny={},fmvp1st={};
+                adminSubs.forEach(s=>{(s.finalsMvp||[]).forEach((p,i)=>{fmvpAny[p]=(fmvpAny[p]||0)+1;if(i===0)fmvp1st[p]=(fmvp1st[p]||0)+1;});});
+                const fmvpAnySorted=Object.entries(fmvpAny).sort((a,b)=>b[1]-a[1]).slice(0,10);
+                const fmvp1stSorted=Object.entries(fmvp1st).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+                const emvpAny={},emvp1st={};
+                adminSubs.forEach(s=>{(s.eventMvp||[]).forEach((p,i)=>{emvpAny[p]=(emvpAny[p]||0)+1;if(i===0)emvp1st[p]=(emvp1st[p]||0)+1;});});
+                const emvpAnySorted=Object.entries(emvpAny).sort((a,b)=>b[1]-a[1]).slice(0,10);
+                const emvp1stSorted=Object.entries(emvp1st).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+                const iglCount={};
+                adminSubs.forEach(s=>{if(s.bestIgl)iglCount[s.bestIgl]=(iglCount[s.bestIgl]||0)+1;});
+                const iglSorted=Object.entries(iglCount).sort((a,b)=>b[1]-a[1]);
+
+                const killsCount={};
+                adminSubs.forEach(s=>{if(s.mostFinishes)killsCount[s.mostFinishes]=(killsCount[s.mostFinishes]||0)+1;});
+                const killsSorted=Object.entries(killsCount).sort((a,b)=>b[1]-a[1]);
+
+                const ABar=({pct,color})=>(<div className="stat-bar-wrap"><div className="stat-bar" style={{width:`${pct}%`,background:color}}/></div>);
+                const ARow=({label,count,maxCount,color})=>{
+                  const pct=maxCount>0?Math.round((count/total)*100):0;
+                  const barPct=maxCount>0?Math.round((count/maxCount)*100):0;
+                  return(<div className="stat-row"><div className="stat-label" title={label}>{label}</div><ABar pct={barPct} color={color}/><div className="stat-pct">{pct}%</div></div>);
+                };
+
+                return(
+                  <>
+                    <div className="admin-box">
+                      <div className="admin-title">📊 Live Statistics ({total} submissions)</div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(400px,1fr))",gap:20}}>
+                        <div>
+                          <div className="stat-sub" style={{marginBottom:8}}><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Top 5 picks</div>
+                          {top5Sorted.slice(0,8).map(t=><ARow key={t.id+"t5"} label={t.name} count={teamTop5Count[t.name]} maxCount={teamTop5Count[top5Sorted[0].name]} color="#1a56db"/>)}
+                        </div>
+                        <div>
+                          <div className="stat-sub" style={{marginBottom:8}}><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>Champion picks</div>
+                          {champSorted.slice(0,8).map(t=><ARow key={t.id+"ch"} label={t.name} count={teamChampCount[t.name]} maxCount={teamChampCount[champSorted[0].name]} color="#f59e0b"/>)}
+                        </div>
+                        <div>
+                          <div className="stat-sub" style={{marginBottom:8}}><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Finals MVP (any)</div>
+                          {fmvpAnySorted.map(([p,c])=><ARow key={"fa"+p} label={p} count={c} maxCount={fmvpAnySorted[0]?.[1]||1} color="#1a56db"/>)}
+                        </div>
+                        <div>
+                          <div className="stat-sub" style={{marginBottom:8}}><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>Finals MVP (1st pick)</div>
+                          {fmvp1stSorted.map(([p,c])=><ARow key={"f1"+p} label={p} count={c} maxCount={fmvp1stSorted[0]?.[1]||1} color="#f59e0b"/>)}
+                        </div>
+                        <div>
+                          <div className="stat-sub" style={{marginBottom:8}}><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Event MVP (any)</div>
+                          {emvpAnySorted.map(([p,c])=><ARow key={"ea"+p} label={p} count={c} maxCount={emvpAnySorted[0]?.[1]||1} color="#1a56db"/>)}
+                        </div>
+                        <div>
+                          <div className="stat-sub" style={{marginBottom:8}}><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>Event MVP (1st pick)</div>
+                          {emvp1stSorted.map(([p,c])=><ARow key={"e1"+p} label={p} count={c} maxCount={emvp1stSorted[0]?.[1]||1} color="#f59e0b"/>)}
+                        </div>
+                        <div>
+                          <div className="stat-sub" style={{marginBottom:8}}><span className="stat-sub-dot" style={{background:"#7c3aed"}}/>Best IGL</div>
+                          {iglSorted.map(([p,c])=><ARow key={"igl"+p} label={p} count={c} maxCount={iglSorted[0]?.[1]||1} color="#7c3aed"/>)}
+                        </div>
+                        <div>
+                          <div className="stat-sub" style={{marginBottom:8}}><span className="stat-sub-dot" style={{background:"#ef4444"}}/>Most Kills Team</div>
+                          {killsSorted.map(([t,c])=><ARow key={"k"+t} label={t} count={c} maxCount={killsSorted[0]?.[1]||1} color="#ef4444"/>)}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </>
           )}
         </div>
-
-        {/* ═══ STATISTICS ═══ */}
-        {tab==="stats"&&(
-          <div className="wrap" style={{paddingTop:18,flex:1}}>
-            {(!closed && !IS_ADMIN)?(
-              <div className="locked"><div className="locked-icon">🔒</div><div className="locked-title">Statistics Hidden</div><div className="locked-sub">Available after Mar 27 at 1 PM IST once submissions close.</div></div>
-            ):!lbData||lbData.length===0?(
-              <div className="loading"><div className="spinner"/>Loading stats...</div>
-            ):(()=>{
-              const total = lbData.length;
-              if (total === 0) return <div className="locked"><div className="locked-icon">📊</div><div className="locked-title">No submissions yet</div></div>;
-
-              // ── Compute stats ──
-              // Teams: top5 picks and champion picks
-              const teamTop5Count = {}, teamChampCount = {};
-              TEAMS.forEach(t => { teamTop5Count[t.name]=0; teamChampCount[t.name]=0; });
-              lbData.forEach(s => {
-                (s.top5||[]).forEach(t => { if(teamTop5Count[t]!=null) teamTop5Count[t]++; });
-                if (s.champion && teamChampCount[s.champion]!=null) teamChampCount[s.champion]++;
-              });
-              const top5Sorted = [...TEAMS].sort((a,b)=>teamTop5Count[b.name]-teamTop5Count[a.name]);
-              const champSorted = [...TEAMS].sort((a,b)=>teamChampCount[b.name]-teamChampCount[a.name]).filter(t=>teamChampCount[t.name]>0);
-
-              // Finals MVP: any pick and 1st pick
-              const fmvpAny = {}, fmvp1st = {};
-              lbData.forEach(s => {
-                (s.finalsMvp||[]).forEach((p,i) => { fmvpAny[p]=(fmvpAny[p]||0)+1; if(i===0) fmvp1st[p]=(fmvp1st[p]||0)+1; });
-              });
-              const fmvpAnySorted = Object.entries(fmvpAny).sort((a,b)=>b[1]-a[1]).slice(0,10);
-              const fmvp1stSorted = Object.entries(fmvp1st).sort((a,b)=>b[1]-a[1]).slice(0,8);
-
-              // Event MVP: any pick and 1st pick
-              const emvpAny = {}, emvp1st = {};
-              lbData.forEach(s => {
-                (s.eventMvp||[]).forEach((p,i) => { emvpAny[p]=(emvpAny[p]||0)+1; if(i===0) emvp1st[p]=(emvp1st[p]||0)+1; });
-              });
-              const emvpAnySorted = Object.entries(emvpAny).sort((a,b)=>b[1]-a[1]).slice(0,10);
-              const emvp1stSorted = Object.entries(emvp1st).sort((a,b)=>b[1]-a[1]).slice(0,8);
-
-              // Best IGL
-              const iglCount = {};
-              lbData.forEach(s => { if(s.bestIgl) iglCount[s.bestIgl]=(iglCount[s.bestIgl]||0)+1; });
-              const iglSorted = Object.entries(iglCount).sort((a,b)=>b[1]-a[1]);
-
-              // Most Kills
-              const killsCount = {};
-              lbData.forEach(s => { if(s.mostFinishes) killsCount[s.mostFinishes]=(killsCount[s.mostFinishes]||0)+1; });
-              const killsSorted = Object.entries(killsCount).sort((a,b)=>b[1]-a[1]);
-
-              const Bar = ({pct, color}) => (
-                <div className="stat-bar-wrap">
-                  <div className="stat-bar" style={{width:`${pct}%`, background:color}}/>
-                </div>
-              );
-
-              const StatRow = ({label, count, maxCount, color}) => {
-                const pct = maxCount > 0 ? Math.round((count/total)*100) : 0;
-                const barPct = maxCount > 0 ? Math.round((count/maxCount)*100) : 0;
-                return (
-                  <div className="stat-row">
-                    <div className="stat-label" title={label}>{label}</div>
-                    <Bar pct={barPct} color={color}/>
-                    <div className="stat-pct">{pct}%</div>
-                  </div>
-                );
-              };
-
-              return (
-                <>
-                  <div style={{fontSize:12,color:"#64748b",marginBottom:14}}>Based on <strong style={{color:"#0f172a"}}>{total}</strong> submission{total!==1?"s":""}</div>
-
-                  {/* TEAMS */}
-                  <div className="stat-card">
-                    <div className="stat-title">🏅 Team Picks</div>
-                    <div className="stat-section">
-                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Top 5 picks (any position)</div>
-                      {top5Sorted.map(t=>(
-                        <StatRow key={t.id+"t5"} label={t.name} count={teamTop5Count[t.name]} maxCount={teamTop5Count[top5Sorted[0].name]} color="#1a56db"/>
-                      ))}
-                    </div>
-                    <div className="stat-section" style={{marginTop:16}}>
-                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>Champion picks</div>
-                      {champSorted.map(t=>(
-                        <StatRow key={t.id+"ch"} label={t.name} count={teamChampCount[t.name]} maxCount={teamChampCount[champSorted[0].name]} color="#f59e0b"/>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* FINALS MVP */}
-                  <div className="stat-card">
-                    <div className="stat-title">🎯 Finals MVP Picks</div>
-                    <div className="stat-section">
-                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Any pick (1st, 2nd or 3rd)</div>
-                      {fmvpAnySorted.map(([p,c])=>(
-                        <StatRow key={"fa"+p} label={p} count={c} maxCount={fmvpAnySorted[0][1]} color="#1a56db"/>
-                      ))}
-                    </div>
-                    <div className="stat-section" style={{marginTop:16}}>
-                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>1st choice (confident pick)</div>
-                      {fmvp1stSorted.map(([p,c])=>(
-                        <StatRow key={"f1"+p} label={p} count={c} maxCount={fmvp1stSorted[0][1]} color="#f59e0b"/>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* EVENT MVP */}
-                  <div className="stat-card">
-                    <div className="stat-title">🌟 Event MVP Picks</div>
-                    <div className="stat-section">
-                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Any pick (1st, 2nd or 3rd)</div>
-                      {emvpAnySorted.map(([p,c])=>(
-                        <StatRow key={"ea"+p} label={p} count={c} maxCount={emvpAnySorted[0][1]} color="#1a56db"/>
-                      ))}
-                    </div>
-                    <div className="stat-section" style={{marginTop:16}}>
-                      <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>1st choice (confident pick)</div>
-                      {emvp1stSorted.map(([p,c])=>(
-                        <StatRow key={"e1"+p} label={p} count={c} maxCount={emvp1stSorted[0][1]} color="#f59e0b"/>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* BEST IGL */}
-                  <div className="stat-card">
-                    <div className="stat-title">🎖️ Best IGL Picks</div>
-                    {iglSorted.map(([p,c])=>(
-                      <StatRow key={"igl"+p} label={p} count={c} maxCount={iglSorted[0][1]} color="#7c3aed"/>
-                    ))}
-                  </div>
-
-                  {/* MOST KILLS */}
-                  <div className="stat-card">
-                    <div className="stat-title">💀 Most Kills Team Picks</div>
-                    {killsSorted.map(([t,c])=>(
-                      <StatRow key={"k"+t} label={t} count={c} maxCount={killsSorted[0][1]} color="#ef4444"/>
-                    ))}
-                  </div>
-                </>
-              );
-            })()}
-          </div>
-        )}
 
         {toast&&<div className={`toast${toast.type==="error"?" err":""}`}>{toast.msg}</div>}
       </div>
@@ -2033,14 +1984,15 @@ export default function App() {
             ):!lbData||lbData.length===0?(
               <div className="loading"><div className="spinner"/>Loading stats...</div>
             ):(()=>{
-              const total = lbData.length;
-              if (total === 0) return <div className="locked"><div className="locked-icon">📊</div><div className="locked-title">No submissions yet</div></div>;
+              const allLbData = Object.values(lbPages).flat();
+              const total = allLbData.length;
+              if (total === 0) return <div className="locked"><div className="locked-icon">📊</div><div className="locked-title">No data yet — bake leaderboard first.</div></div>;
 
               // ── Compute stats ──
               // Teams: top5 picks and champion picks
               const teamTop5Count = {}, teamChampCount = {};
               TEAMS.forEach(t => { teamTop5Count[t.name]=0; teamChampCount[t.name]=0; });
-              lbData.forEach(s => {
+              allLbData.forEach(s => {
                 (s.top5||[]).forEach(t => { if(teamTop5Count[t]!=null) teamTop5Count[t]++; });
                 if (s.champion && teamChampCount[s.champion]!=null) teamChampCount[s.champion]++;
               });
@@ -2163,7 +2115,7 @@ export default function App() {
                   </div>
                 </>
               );
-            })()}
+            })() : null; })()}
           </div>
         )}
 
