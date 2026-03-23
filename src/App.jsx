@@ -2000,8 +2000,6 @@ export default function App() {
           <div className="wrap" style={{paddingTop:18,flex:1}}>
             {(!closed && !IS_ADMIN)?(
               <div className="locked"><div className="locked-icon">🔒</div><div className="locked-title">Statistics Hidden</div><div className="locked-sub">Available after Mar 27 at 1 PM IST once submissions close.</div></div>
-            ):!lbData||lbData.length===0?(
-              <div className="loading"><div className="spinner"/>Loading stats...</div>
             ):(()=>{
               const allLbData = Object.values(lbPages).flat();
               const total = allLbData.length;
