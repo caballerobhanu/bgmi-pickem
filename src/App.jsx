@@ -1998,8 +1998,12 @@ export default function App() {
         {/* ═══ STATISTICS ═══ */}
         {tab==="stats"&&(
           <div className="wrap" style={{paddingTop:18,flex:1}}>
-            {(!closed && !IS_ADMIN)?(
-              <div className="locked"><div className="locked-icon">🔒</div><div className="locked-title">Statistics Hidden</div><div className="locked-sub">Available after Mar 27 at 1 PM IST once submissions close.</div></div>
+            {(!closed && !meta?.published)?(
+              <div className="locked">
+                <div className="locked-icon">🔒</div>
+                <div className="locked-title">Statistics Hidden</div>
+                <div className="locked-sub">Visible after Mar 27 at 1 PM IST once submissions close.</div>
+              </div>
             ):(()=>{
               const allLbData = Object.values(lbPages).flat();
               const total = allLbData.length;
