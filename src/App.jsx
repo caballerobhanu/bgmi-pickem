@@ -81,17 +81,34 @@ function calcPredictionScore(picks, results) {
   if (!results || !picks) return null;
   let score = 0;
   const { top5, champion, finalsMvp, eventMvp, bestIgl, mostFinishes } = picks;
-  if (results.top5 && top5) top5.forEach(t => { if (results.top5.includes(t)) score += t===champion?30:10; });
+
+  // Top 5: 10 pts each correct team
+  if (results.top5 && top5) 
+    top5.forEach(t => { 
+      if (results.top5.includes(t)) score += 10; 
+    });
+
+  // Champion bonus: extra 30 pts if champion pick is correct (on top of the 10 above)
+  if (results.champion && champion && champion === results.champion) score += 30;
+
+  // Finals MVP
   if (results.finalsMvp && finalsMvp) {
-    if (finalsMvp[0]===results.finalsMvp) score+=50;
-    else if (finalsMvp[1]===results.finalsMvp||finalsMvp[2]===results.finalsMvp) score+=20;
+    if (finalsMvp[0] === results.finalsMvp) score += 50;
+    else if (finalsMvp[1] === results.finalsMvp || finalsMvp[2] === results.finalsMvp) score += 20;
   }
+
+  // Event MVP
   if (results.eventMvp && eventMvp) {
-    if (eventMvp[0]===results.eventMvp) score+=40;
-    else if (eventMvp[1]===results.eventMvp||eventMvp[2]===results.eventMvp) score+=20;
+    if (eventMvp[0] === results.eventMvp) score += 40;
+    else if (eventMvp[1] === results.eventMvp || eventMvp[2] === results.eventMvp) score += 20;
   }
-  if (results.bestIgl && bestIgl===results.bestIgl) score+=25;
-  if (results.mostFinishes && mostFinishes===results.mostFinishes) score+=20;
+
+  // Best IGL
+  if (results.bestIgl && bestIgl === results.bestIgl) score += 25;
+
+  // Most Kills
+  if (results.mostFinishes && mostFinishes === results.mostFinishes) score += 20;
+
   return score;
 }
 
@@ -1549,7 +1566,7 @@ export default function App() {
             {closed
               ?<span className="badge badge-red"><span className="badge-dot"/>Submissions Closed</span>
               :<span className="badge badge-green"><span className="badge-dot pulse"/>Open · {countdown||"Closing soon"}</span>}
-            <span className="badge badge-blue">16 Teams · 205 pts max</span>
+            <span className="badge badge-blue">16 Teams · 215 pts max</span>
             <a href="https://esportsamaze.in/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026" target="_blank" rel="noopener noreferrer" className="tour-link">🔗 Tournament Page</a>
           </div>
 
@@ -1557,7 +1574,7 @@ export default function App() {
 
         <div className="score-strip">
           <span className="si"><span className="sd" style={{background:"#1a56db"}}/>Top 5: 10 pts</span>
-          <span className="si"><span className="sd" style={{background:"#f59e0b"}}/>Champion: 30 pts</span>
+          <span className="si"><span className="sd" style={{background:"#f59e0b"}}/>Champion: 30 Bonus pts</span>
           <span className="si"><span className="sd" style={{background:"#7c3aed"}}/>Finals MVP: 50/20</span>
           <span className="si"><span className="sd" style={{background:"#16a34a"}}/>Event MVP: 40/20</span>
           <span className="si"><span className="sd" style={{background:"#ef4444"}}/>Best IGL: 25</span>
