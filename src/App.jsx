@@ -21,6 +21,7 @@ const META_DOC      = "bgis2026_finals_meta";
 const SUBS_COL      = "bgis2026_finals_submissions";
 const LB_META_DOC   = "bgis2026_lb_meta";
 const LB_PAGE_PREFIX= "bgis2026_lb_page_";
+const LB_INDEX_DOC  = "bgis2026_lb_username_index";
 const USERS_COL     = "bgis2026_finals_users";
 const DEADLINE      = new Date("2026-03-27T07:30:00Z");
 
@@ -30,6 +31,7 @@ const LS_META       = "bgis2026f_meta";
 const LS_MY_SUB     = "bgis2026f_my_sub";
 const LS_LB_META    = "bgis2026f_lb_meta";
 const LS_LB_PAGE    = "bgis2026f_lb_page_";
+const LS_LB_INDEX   = "bgis2026f_lb_index";
 const META_TTL      = 20 * 60 * 1000; // 20 minutes
 const PAGE_SIZE     = 500;
 
@@ -77,18 +79,19 @@ const sn = (name) => SHORT[name] || name;
 const ALL_IGLS = TEAMS.map(t => ({ player:t.igl, team:t.name, teamId:t.id, logo:t.logo }));
 
 // ── Scoring ───────────────────────────────────────────────────────
+// FIX: Top 5 = 10 pts each correct team. Champion bonus = separate +30 pts on top.
+// So correct champion pick = 10 (top5) + 30 (bonus) = 40 pts total.
+// Wrong champion but in top5 = only 10 pts.
 function calcPredictionScore(picks, results) {
   if (!results || !picks) return null;
   let score = 0;
   const { top5, champion, finalsMvp, eventMvp, bestIgl, mostFinishes } = picks;
 
-  // Top 5: 10 pts each correct team
-  if (results.top5 && top5) 
-    top5.forEach(t => { 
-      if (results.top5.includes(t)) score += 10; 
-    });
+  // Top 5: 10 pts for each correct team (regardless of champion)
+  if (results.top5 && top5)
+    top5.forEach(t => { if (results.top5.includes(t)) score += 10; });
 
-  // Champion bonus: extra 30 pts if champion pick is correct (on top of the 10 above)
+  // Champion bonus: +30 pts if champion pick is correct (stacks with top5 10 pts)
   if (results.champion && champion && champion === results.champion) score += 30;
 
   // Finals MVP
@@ -135,26 +138,15 @@ function calcFantasyScore(picks, fantasyData) {
 }
 
 // ── Tiebreaker sort ───────────────────────────────────────────────
-// 1. Total score
-// 2. Champion correct
-// 3. Finals MVP (1st > 2nd > 3rd)
-// 4. Event MVP (1st > 2nd > 3rd)
-// 5. More correct teams in top5
-// 6. Top5 rank order (position accuracy)
-// 7. Best IGL correct
-// 8. Earlier submission
 function tiebreakerSort(a, b, results) {
   if (!results) return new Date(a.createdAt||0) - new Date(b.createdAt||0);
 
-  // 1. Total score
   if (b.score !== a.score) return b.score - a.score;
 
-  // 2. Champion correct
   const aChampCorrect = a.champion && results.champion && a.champion===results.champion ? 1 : 0;
   const bChampCorrect = b.champion && results.champion && b.champion===results.champion ? 1 : 0;
   if (bChampCorrect !== aChampCorrect) return bChampCorrect - aChampCorrect;
 
-  // 3. Finals MVP (1st choice=2, 2nd choice=1, 3rd choice=0)
   const mvpRank = (picks, result) => {
     if (!picks||!result) return -1;
     if (picks[0]===result) return 2;
@@ -166,17 +158,14 @@ function tiebreakerSort(a, b, results) {
   const bFmvp = mvpRank(b.finalsMvp, results.finalsMvp);
   if (bFmvp !== aFmvp) return bFmvp - aFmvp;
 
-  // 4. Event MVP
   const aEmvp = mvpRank(a.eventMvp, results.eventMvp);
   const bEmvp = mvpRank(b.eventMvp, results.eventMvp);
   if (bEmvp !== aEmvp) return bEmvp - aEmvp;
 
-  // 5. More correct teams in top5
   const countCorrect = (top5) => results.top5 ? (top5||[]).filter(t=>results.top5.includes(t)).length : 0;
   const aCorrect = countCorrect(a.top5), bCorrect = countCorrect(b.top5);
   if (bCorrect !== aCorrect) return bCorrect - aCorrect;
 
-  // 6. Top5 rank order — cascade through positions
   if (results.top5) {
     for (let i=0; i<results.top5.length; i++) {
       const correctTeam = results.top5[i];
@@ -187,12 +176,10 @@ function tiebreakerSort(a, b, results) {
     }
   }
 
-  // 7. Best IGL correct
   const aIgl = a.bestIgl && results.bestIgl && a.bestIgl===results.bestIgl ? 1 : 0;
   const bIgl = b.bestIgl && results.bestIgl && b.bestIgl===results.bestIgl ? 1 : 0;
   if (bIgl !== aIgl) return bIgl - aIgl;
 
-  // 8. Earlier submission wins
   return new Date(a.createdAt||a.timestamp||0) - new Date(b.createdAt||b.timestamp||0);
 }
 
@@ -245,9 +232,23 @@ function getCachedLbPage(version, page) {
 function setCachedLbPage(version, page, entries) {
   try { localStorage.setItem(LS_LB_PAGE+page, JSON.stringify({ version, entries })); } catch {}
 }
+
+// ── LB username index cache helpers ──────────────────────────────
+function getCachedLbIndex(version) {
+  try {
+    const cached = JSON.parse(localStorage.getItem(LS_LB_INDEX) || "null");
+    if (cached && cached.version === version) return cached.index;
+    return null;
+  } catch { return null; }
+}
+function setCachedLbIndex(version, index) {
+  try { localStorage.setItem(LS_LB_INDEX, JSON.stringify({ version, index })); } catch {}
+}
+
 function invalidateLbCache() {
   try {
     localStorage.removeItem(LS_LB_META);
+    localStorage.removeItem(LS_LB_INDEX);
     for (let i=0; i<100; i++) localStorage.removeItem(LS_LB_PAGE+i);
   } catch {}
 }
@@ -445,7 +446,6 @@ const CSS = `
   .info-row strong { color:#0f172a; }
   .err-text { font-size:11px; color:#dc2626; font-weight:600; margin-top:5px; }
 
-
   /* PC two-column layout */
   .pc-two-col { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
   @media(max-width:700px) { .pc-two-col { grid-template-columns:1fr; } }
@@ -460,7 +460,6 @@ const CSS = `
   /* Accordion two columns on PC */
   .acc-grid { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
   @media(max-width:700px) { .acc-grid { grid-template-columns:1fr; } }
-
 
   /* Top social bar */
   .topbar { background:#0f172a; padding:6px 16px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
@@ -482,7 +481,6 @@ const CSS = `
   .footer-promo a { color:#60a5fa; text-decoration:none; font-weight:600; }
   .footer-promo a:hover { color:#93c5fd; }
   .footer-made { text-align:center; font-size:10px; color:rgba(255,255,255,.6); margin-top:12px; }
-
 
   /* Stats */
   .stat-card { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:18px; margin-bottom:14px; }
@@ -513,14 +511,13 @@ const CSS = `
 `;
 
 
-// ── Share Card Generator (template-based) ────────────────────────
+// ── Share Card Generator ──────────────────────────────────────────
 async function generateShareCard(picks, publishedResults, fantasyData, identity) {
   const canvas = document.createElement("canvas");
   const W = 1080, H = 1920;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
 
-  // Load Archivo font
   try {
     const f1 = new FontFace("Archivo", "url(https://fonts.gstatic.com/s/archivo/v19/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q.woff2)", {weight:"600"});
     await f1.load();
@@ -548,40 +545,34 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     if (stroke) { ctx.strokeStyle=stroke; ctx.lineWidth=sw; ctx.stroke(); }
   };
 
-  // ── Draw template ──
   const tmpl = await loadImg("/logos/story.png");
   if (tmpl) ctx.drawImage(tmpl, 0, 0, W, H);
   else { ctx.fillStyle="#f0f0f0"; ctx.fillRect(0,0,W,H); }
 
-  // ── USERNAME inside pill ──
-  // Pill: x=300-780, y=247-323, center x=540, center y=285
   const uname = (identity?.username || "player").toUpperCase();
   ctx.save();
-  ctx.font = F; // 600 26px Archivo
+  ctx.font = F;
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(uname, 540, 300);
   ctx.restore();
 
-  // ── Content zone: y=340 to y=1755 (1415px available) ──
   const PAD = 60;
-  const INNER_W = W - PAD*2; // 960px
+  const INNER_W = W - PAD*2;
   const ROW_H = 140;
   const BOX_H = 118;
   const ROW_GAP = 20;
   const BOX_GAP = 12;
 
-  // Calculate starting y to fill space evenly
   const CONTENT_TOP = 340;
   const CONTENT_BOT = 1755;
-  const AVAIL = CONTENT_BOT - CONTENT_TOP; // 1415px
+  const AVAIL = CONTENT_BOT - CONTENT_TOP;
   const USED = 32+10 + 5*ROW_H + 28+2+16 + 2*BOX_H+BOX_GAP;
   const TOP_SPACE = Math.floor((AVAIL - USED) * 0.2);
 
   let y = CONTENT_TOP + TOP_SPACE;
 
-  // ── TOP 5 PICKS label ──
   ctx.save();
   ctx.font = "600 22px Archivo, Inter, sans-serif";
   ctx.fillStyle = "rgba(0,0,0,0.28)";
@@ -595,7 +586,6 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   ctx.restore();
   y += 32 + 10;
 
-  // ── 5 rows — zero gap, shared borders ──
   const top5 = picks.top5 || [];
   const champ = picks.champion;
 
@@ -605,14 +595,12 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     const ry = y + i*(ROW_H+ROW_GAP);
     const midY = ry + ROW_H/2;
 
-    // Each row fully rounded
     rr(PAD, ry, INNER_W, ROW_H, 12,
       isChamp?"rgba(245,158,11,0.09)":"rgba(0,0,0,0.035)",
       isChamp?"rgba(245,158,11,0.45)":"rgba(0,0,0,0.09)",
       isChamp?2:1
     );
 
-    // Rank
     ctx.save();
     ctx.font = "600 26px Archivo, Inter, sans-serif";
     ctx.fillStyle = isChamp?"#d97706":"rgba(0,0,0,0.20)";
@@ -621,7 +609,6 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     ctx.fillText("#"+(i+1), PAD+22, midY);
     ctx.restore();
 
-    // Logo
     const lsz = 68;
     const lx = PAD+90, ly2 = midY-lsz/2;
     if (team) {
@@ -636,7 +623,6 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
       }
     }
 
-    // Team name
     ctx.save();
     ctx.font = "600 30px Archivo, Inter, sans-serif";
     ctx.fillStyle = isChamp?"#92400e":"#0f172a";
@@ -650,7 +636,6 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     ctx.fillText(tname, lx+lsz+16, midY);
     ctx.restore();
 
-    // Champion pill
     if (isChamp) {
       ctx.save();
       const px=PAD+INNER_W-PW-20, ph=38, py2=midY-ph/2;
@@ -665,19 +650,16 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   }
   y += top5.length*(ROW_H+ROW_GAP) - ROW_GAP + 28;
 
-  // Divider
   ctx.fillStyle = "rgba(0,0,0,0.08)";
   ctx.fillRect(PAD, y, INNER_W, 1.5);
   y += 2+16;
 
-  // ── 4 info boxes ──
   const colW = (INNER_W-14)/2;
 
   const drawBox = async (label, value, colX, bY, findFn) => {
     const team = findFn?findFn(value):null;
     rr(colX, bY, colW, BOX_H, 12, "rgba(0,0,0,0.04)", "rgba(0,0,0,0.09)", 1.5);
     const midY2 = bY+BOX_H/2;
-    // Label
     ctx.save();
     ctx.font = "500 16px Archivo, Inter, sans-serif";
     ctx.fillStyle = "rgba(0,0,0,0.35)";
@@ -687,7 +669,6 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
     ctx.fillText(label.toUpperCase(), colX+14, bY+22);
     ctx.letterSpacing = "0px";
     ctx.restore();
-    // Logo
     const lsz2=48, lx2=colX+14, ly3=midY2-lsz2/2+6;
     if (team) {
       const li=await loadImg(LOGO(team.logo));
@@ -700,7 +681,6 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
         ctx.restore();
       }
     }
-    // Value
     ctx.save();
     ctx.font = "700 27px Archivo, Inter, sans-serif";
     ctx.fillStyle = "#0f172a";
@@ -715,17 +695,15 @@ async function generateShareCard(picks, publishedResults, fantasyData, identity)
   };
 
   const fp=n=>TEAMS.find(t=>t.players?.includes(n));
-  const ft=n=>TEAMS.find(t=>t.name===n);
   const fi=n=>TEAMS.find(t=>t.igl===n);
 
   await drawBox("Finals MVP",  picks.finalsMvp?.[0], PAD,         y, fp);
   await drawBox("Event MVP",   picks.eventMvp?.[0],  PAD+colW+14, y, fp);
   y += BOX_H+BOX_GAP;
   await drawBox("Best IGL",    picks.bestIgl,         PAD,         y, fi);
-  await drawBox("Most Kills",  picks.mostFinishes,    PAD+colW+14, y, ft);
+  await drawBox("Most Kills",  picks.mostFinishes,    PAD+colW+14, y, TEAMS.find.bind(TEAMS));
   y += BOX_H+20;
 
-  // Score (only when published)
   const hasScore = publishedResults && picks.score!=null;
   const hasFantasy = fantasyData && picks.fantasyScore!=null;
   if (hasScore||hasFantasy) {
@@ -786,12 +764,10 @@ function ShareButtons({ picks, publishedResults, fantasyData, identity }) {
         const file = new File([blob], "bgis2026_picks.png", { type: "image/png" });
         if (navigator.canShare({ files: [file] })) {
           await navigator.share({ title: "BGIS 2026 Finals Pick'em", text, files: [file] });
-          return; // user shared or cancelled — either way stop here
+          return;
         }
       } catch(err) {
-        // AbortError = user cancelled share sheet — do nothing
         if (err.name === "AbortError") return;
-        // Other error — fall through to Twitter intent
       }
     }
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
@@ -942,6 +918,7 @@ export default function App() {
     };
     check();
   }, []);
+
   const [tab, setTab] = useState("picks");
   const [toast, setToast] = useState(null);
   const [meta, setMeta] = useState(null);
@@ -968,11 +945,12 @@ export default function App() {
 
   // Leaderboard
   const [lbTab, setLbTab] = useState("prediction");
-  const [lbMetaInfo, setLbMetaInfo] = useState(null); // {totalPages, count, cacheVersion}
-  const [lbPages, setLbPages] = useState({}); // {0: [...], 1: [...]}
+  const [lbMetaInfo, setLbMetaInfo] = useState(null);
+  const [lbPages, setLbPages] = useState({});
   const [lbPage, setLbPage] = useState(0);
   const [lbSearch, setLbSearch] = useState("");
   const [lbLoading, setLbLoading] = useState(false);
+  const [lbIndex, setLbIndex] = useState(null); // username → rank map
   const [fantasyData, setFantasyData] = useState(null);
 
   // Admin
@@ -989,7 +967,7 @@ export default function App() {
 
   const showToast = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3200); };
 
-  // ── Load meta (20 min TTL cache) ──
+  // ── Load meta ──
   useEffect(() => {
     const load = async () => {
       const cached = getCachedMeta();
@@ -1017,7 +995,7 @@ export default function App() {
     if (t&&id) setIdentity({username:id,token:t,isReturning:true});
   }, []);
 
-  // ── Load my submission (localStorage first) ──
+  // ── Load my submission ──
   useEffect(() => {
     if (!identity) { setMySubmission(null); return; }
     const cached = getCachedSub(identity.username);
@@ -1031,7 +1009,6 @@ export default function App() {
       if (cached.mostFinishes) setMostFinishes(cached.mostFinishes);
       return;
     }
-    // Not in cache — fetch once
     const load = async () => {
       try {
         const snap = await getDoc(doc(db,"pickem",META_DOC,SUBS_COL,identity.username));
@@ -1050,11 +1027,11 @@ export default function App() {
     load();
   }, [identity?.username]);
 
-  // ── Load leaderboard meta (ref-guarded, no duplicate reads) ──
+  // ── Load leaderboard meta ──
   const lbMetaLoading = useRef(false);
   const loadLbMeta = useCallback(async () => {
     if (!meta || lbMetaLoading.current) return;
-    const canLoad = isClosed() || meta.published || IS_ADMIN;
+    const canLoad = isClosed() || meta.published || isAdmin;
     if (!canLoad) return;
     const version = meta.cacheVersion||0;
     const cached = getCachedLbMeta(version);
@@ -1073,12 +1050,28 @@ export default function App() {
   }, [meta]);
 
   useEffect(() => { loadLbMeta(); }, [meta]);
+  useEffect(() => { if (tab==="lb"||tab==="stats") loadLbMeta(); }, [tab]);
 
+  // ── Load username index (1 doc, used for search — much cheaper than all pages) ──
   useEffect(() => {
-    if (tab==="lb"||tab==="stats") loadLbMeta();
-  }, [tab]);
+    if (!lbMetaInfo) return;
+    const version = lbMetaInfo.cacheVersion || 0;
+    const cached = getCachedLbIndex(version);
+    if (cached) { setLbIndex(cached); return; }
+    const load = async () => {
+      try {
+        const snap = await getDoc(doc(db, "pickem", LB_INDEX_DOC));
+        if (snap.exists()) {
+          const index = snap.data().index || {};
+          setLbIndex(index);
+          setCachedLbIndex(version, index);
+        }
+      } catch {}
+    };
+    load();
+  }, [lbMetaInfo]);
 
-  // ── Load a leaderboard page (ref-guarded) ──
+  // ── Load a leaderboard page ──
   const lbPageLoading = useRef({});
   const loadLbPage = useCallback(async (page) => {
     if (!meta || !lbMetaInfo || lbPageLoading.current[page]) return;
@@ -1106,6 +1099,16 @@ export default function App() {
   useEffect(() => {
     if ((tab==="stats"||tab==="lb") && lbMetaInfo && !(0 in lbPages)) loadLbPage(0);
   }, [tab, lbMetaInfo]);
+
+  // ── Smart search: use index to find which pages to load, then fetch only those ──
+  useEffect(() => {
+    if (!lbSearch.trim() || !lbMetaInfo || !lbIndex) return;
+    const q = lbSearch.trim().toLowerCase();
+    const matchingUsernames = Object.keys(lbIndex).filter(u => u.toLowerCase().includes(q));
+    // Only load pages that contain matching users
+    const pagesNeeded = new Set(matchingUsernames.map(u => Math.floor((lbIndex[u] - 1) / PAGE_SIZE)));
+    pagesNeeded.forEach(p => { if (!(p in lbPages)) loadLbPage(p); });
+  }, [lbSearch, lbIndex, lbMetaInfo]);
 
   // ── Auth ──
   const handleConfirm = async () => {
@@ -1220,40 +1223,44 @@ export default function App() {
 
   const bakeLeaderboard = async () => {
     try {
-      // Fetch all submissions
       const snap = await getDocs(collection(db,"pickem",META_DOC,SUBS_COL));
       const allSubs = snap.docs.map(d=>d.data()).filter(d=>!d.deleted);
 
-      // Use current meta state (already loaded, no extra read needed)
       const metaData = meta||{};
       const currentResults = metaData.results||null;
       const currentFantasy = metaData.fantasy||null;
 
-      // Score and sort using tiebreaker
       const scored = allSubs.map(s=>({
         ...s,
         score: currentResults ? calcPredictionScore(s,currentResults) : 0,
         fantasyScore: currentFantasy ? calcFantasyScore(s,currentFantasy) : 0,
       })).sort((a,b)=>tiebreakerSort(a,b,currentResults));
 
-      // Paginate into 500-entry docs
       const pages = [];
       for (let i=0; i<scored.length; i+=PAGE_SIZE) pages.push(scored.slice(i,i+PAGE_SIZE));
       const totalPages = pages.length||1;
 
-      // Write page docs in parallel
+      // Write page docs
       await Promise.all(pages.map((entries,i)=>
         setDoc(doc(db,"pickem",LB_PAGE_PREFIX+i),{adminSecret:ADMIN_SECRET,page:i,entries,bakedAt:new Date().toISOString()})
       ));
 
-      // Bump cacheVersion and write lb meta
+      // Write username→rank index (1 doc, enables cheap search)
+      const usernameIndex = {};
+      scored.forEach((s, i) => { usernameIndex[s.username] = i + 1; });
+      await setDoc(doc(db,"pickem",LB_INDEX_DOC),{
+        adminSecret:ADMIN_SECRET,
+        index:usernameIndex,
+        bakedAt:new Date().toISOString()
+      });
+
       const newVersion = (metaData.cacheVersion||0)+1;
       await setDoc(doc(db,"pickem",LB_META_DOC),{adminSecret:ADMIN_SECRET,totalPages,count:allSubs.length,cacheVersion:newVersion,bakedAt:new Date().toISOString()});
       await setDoc(doc(db,"pickem",META_DOC),{adminSecret:ADMIN_SECRET,cacheVersion:newVersion},{merge:true});
 
-      // Invalidate all local caches
       invalidateLbCache(); invalidateMetaCache();
       setLbMetaInfo({totalPages, count:allSubs.length, cacheVersion:newVersion});
+      setLbIndex(null); // will reload from new version
 
       showToast("Baked "+allSubs.length+" entries into "+totalPages+" pages");
     } catch(e) { showToast("Bake failed","error"); console.error(e); }
@@ -1274,22 +1281,27 @@ export default function App() {
     try { await setDoc(doc(db,"pickem",META_DOC,SUBS_COL,username),{adminSecret:ADMIN_SECRET,deleted:true},{merge:true}); setAdminSubs(p=>p.filter(s=>s.username!==username)); showToast("Deleted"); } catch { showToast("Failed","error"); }
   };
 
-  // ── Leaderboard display data ──
+  // ── Leaderboard display ──
   const publishedResults = meta?.published ? meta?.results : null;
   const currentPageEntries = lbPages[lbPage] || [];
 
-  // Search: if searching, scan all cached pages
+  // Search: use index to find matches, pull entries from cached pages
   const searchResults = useCallback(() => {
     if (!lbSearch.trim()) return null;
     const q = lbSearch.trim().toLowerCase();
-    const allCached = Object.values(lbPages).flat();
-    return allCached.filter(s=>(s.username||"").toLowerCase().includes(q));
-  }, [lbSearch, lbPages]);
+    if (!lbIndex) return [];
+    const matches = Object.entries(lbIndex)
+      .filter(([u]) => u.toLowerCase().includes(q))
+      .sort((a, b) => a[1] - b[1]); // sort by rank
+    return matches.map(([username, rank]) => {
+      const page = Math.floor((rank - 1) / PAGE_SIZE);
+      const pageEntries = lbPages[page] || [];
+      return pageEntries.find(s => s.username === username);
+    }).filter(Boolean);
+  }, [lbSearch, lbIndex, lbPages]);
 
   const displayEntries = lbSearch.trim() ? (searchResults()||[]) : currentPageEntries;
   const totalPages = lbMetaInfo?.totalPages||1;
-
-  // Rank offset for current page (for display)
   const rankOffset = lbSearch.trim() ? 0 : lbPage * PAGE_SIZE;
 
   const closed = isClosed();
@@ -1301,7 +1313,6 @@ export default function App() {
     <>
       <style>{CSS}</style>
       <div className="app">
-        {/* Top bar */}
         <div className="topbar">
           <div className="topbar-brand">BGIS 2026 Pick'em by <span><a href="https://esportsamaze.in" target="_blank" rel="noopener noreferrer" style={{color:"inherit",textDecoration:"none"}}>EsportsAmaze</a></span></div>
           <div className="topbar-socials">
@@ -1352,7 +1363,7 @@ export default function App() {
                     :<button className="btn btn-red" onClick={()=>handlePublishToggle(false)}>🔒 Hide Scores</button>}
                 </div>
                 <div style={{fontSize:11,color:"#94a3b8",marginTop:8}}>
-                  Bake sorts all entries with tiebreaker, paginates into {PAGE_SIZE}/page docs. Run after updating results or fantasy data.
+                  Bake sorts all entries, paginates into {PAGE_SIZE}/page docs, and writes a username index for efficient search (1 read per user instead of all pages).
                 </div>
               </div>
 
@@ -1445,7 +1456,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Admin Statistics - uses live adminSubs */}
               {adminSubs.length>0&&(()=>{
                 const total = adminSubs.length;
                 const teamTop5Count={}, teamChampCount={};
@@ -1527,7 +1537,6 @@ export default function App() {
             </>
           )}
         </div>
-
         {toast&&<div className={`toast${toast.type==="error"?" err":""}`}>{toast.msg}</div>}
       </div>
     </>
@@ -1539,7 +1548,6 @@ export default function App() {
       <style>{CSS}</style>
       <div className="app">
 
-        {/* Top bar */}
         <div className="topbar">
           <div className="topbar-brand">BGIS 2026 Pick'em by <span><a href="https://esportsamaze.in" target="_blank" rel="noopener noreferrer" style={{color:"inherit",textDecoration:"none"}}>EsportsAmaze</a></span></div>
           <div className="topbar-socials">
@@ -1569,12 +1577,11 @@ export default function App() {
             <span className="badge badge-blue">16 Teams · 215 pts max</span>
             <a href="https://esportsamaze.in/BGMI/Tournaments/Battlegrounds_Mobile_India_Series_2026" target="_blank" rel="noopener noreferrer" className="tour-link">🔗 Tournament Page</a>
           </div>
-
         </div>
 
         <div className="score-strip">
-          <span className="si"><span className="sd" style={{background:"#1a56db"}}/>Top 5: 10 pts</span>
-          <span className="si"><span className="sd" style={{background:"#f59e0b"}}/>Champion: 30 Bonus pts</span>
+          <span className="si"><span className="sd" style={{background:"#1a56db"}}/>Top 5: 10 pts each</span>
+          <span className="si"><span className="sd" style={{background:"#f59e0b"}}/>Champion bonus: +30 pts</span>
           <span className="si"><span className="sd" style={{background:"#7c3aed"}}/>Finals MVP: 50/20</span>
           <span className="si"><span className="sd" style={{background:"#16a34a"}}/>Event MVP: 40/20</span>
           <span className="si"><span className="sd" style={{background:"#ef4444"}}/>Best IGL: 25</span>
@@ -1687,17 +1694,15 @@ export default function App() {
 
                 {identity&&!closed&&!submitted&&(
                   <>
-                    {/* TOP 5 */}
                     <div className="card">
                       <div className="card-title">🏅 Pick Top 5 Teams <span style={{marginLeft:"auto",fontSize:12,color:"#64748b"}}>{top5.length}/5</span></div>
                       <div className="pc-two-col">
-                        {/* Left col: picked slots */}
                         <div>
                           {top5.length>0&&(
                             <>
-                              <div className="sec-label">Drag to reorder · tap ☆ Champion (30 pts)</div>
+                              <div className="sec-label">Drag to reorder · tap ☆ Champion (+30 bonus pts)</div>
                               <DraggableTop5 top5={top5} setTop5={setTop5} champion={champion} setChampion={setChampion}/>
-                              {champion&&<div className="banner amber" style={{marginBottom:10}}>⭐ {champion} is your Champion pick!</div>}
+                              {champion&&<div className="banner amber" style={{marginBottom:10}}>⭐ {champion} is your Champion pick! (+30 bonus on top of 10 pts)</div>}
                             </>
                           )}
                           {top5.length<5&&(
@@ -1707,11 +1712,10 @@ export default function App() {
                           )}
                           {top5.length===5&&!champion&&(
                             <div style={{padding:"10px 0",color:"#92400e",fontSize:13,fontWeight:600}}>
-                              Now tap ☆ Champ on one of your picks
+                              Now tap ☆ Champ on one of your picks for +30 bonus pts
                             </div>
                           )}
                         </div>
-                        {/* Right col: 4x4 team grid */}
                         <div>
                           <div className="sec-label">{top5.length<5?"Select teams":"All 5 picked!"}</div>
                           <div className="teams-grid-pc">
@@ -1731,19 +1735,16 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* FINALS MVP */}
                     <div className="card">
                       <div className="card-title">🎯 Finals MVP <span style={{marginLeft:"auto",fontSize:12,color:"#64748b"}}>{finalsMvp.length}/3</span></div>
                       <PlayerAccordion picks={finalsMvp} setPicks={setFinalsMvp} max={3} pts1={50} pts2={20}/>
                     </div>
 
-                    {/* EVENT MVP */}
                     <div className="card">
                       <div className="card-title">🌟 Event MVP <span style={{marginLeft:"auto",fontSize:12,color:"#64748b"}}>{eventMvp.length}/3</span></div>
                       <PlayerAccordion picks={eventMvp} setPicks={setEventMvp} max={3} pts1={40} pts2={20}/>
                     </div>
 
-                    {/* BEST IGL */}
                     <div className="card">
                       <div className="card-title">🎖️ Best IGL — 25 pts</div>
                       <div className="sec-label">Pick the best In-Game Leader of the tournament</div>
@@ -1759,7 +1760,6 @@ export default function App() {
                       {bestIgl&&<div className="banner green" style={{marginTop:10,marginBottom:0}}>✅ {bestIgl} selected</div>}
                     </div>
 
-                    {/* MOST KILLS */}
                     <div className="card">
                       <div className="card-title">💀 Most Kills Team — 20 pts</div>
                       <div className="sec-label">Which team will have the most total kills?</div>
@@ -1774,7 +1774,6 @@ export default function App() {
                       {mostFinishes&&<div className="banner green" style={{marginTop:10,marginBottom:0}}>✅ {mostFinishes} selected</div>}
                     </div>
 
-                    {/* SUBMIT */}
                     <div style={{maxWidth:480,margin:"0 auto 32px"}}>
                       {!canSubmit&&(
                         <div className="banner amber" style={{marginBottom:11}}>
@@ -1876,20 +1875,35 @@ export default function App() {
 
                 {!meta?.published&&<div className="banner amber">⏳ Picks visible — scores appear once results are published.</div>}
 
-                {/* Search */}
                 <div className="lb-search-wrap">
                   <span className="lb-search-icon">🔍</span>
-                  <input className="lb-search input" placeholder={"Search username across all "+((lbMetaInfo?.count||0)>0?lbMetaInfo.count+" ":"")+"entries..."} value={lbSearch} onChange={e=>{setLbSearch(e.target.value);}}/>
+                  <input className="lb-search input" placeholder={"Search username across all "+((lbMetaInfo?.count||0)>0?lbMetaInfo.count+" ":"")+"entries..."} value={lbSearch} onChange={e=>setLbSearch(e.target.value)}/>
                 </div>
 
                 {lbMetaInfo&&!lbSearch&&(
                   <div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>
                     {lbMetaInfo.count} total entries · Page {lbPage+1} of {totalPages} · 
-                    {lbSearch?"":` showing ${lbPage*PAGE_SIZE+1}–${Math.min((lbPage+1)*PAGE_SIZE,lbMetaInfo.count)}`}
+                    {` showing ${lbPage*PAGE_SIZE+1}–${Math.min((lbPage+1)*PAGE_SIZE,lbMetaInfo.count)}`}
                   </div>
                 )}
 
-                {lbSearch&&<div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>{displayEntries.length} result{displayEntries.length!==1?"s":""} found{Object.keys(lbPages).length<totalPages?" (searching loaded pages only)":""}</div>}
+                {/* Search status — uses index so shows total matches immediately */}
+                {lbSearch&&(
+                  <div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>
+                    {!lbIndex
+                      ? "Loading search index..."
+                      : (() => {
+                          const q = lbSearch.trim().toLowerCase();
+                          const totalMatches = Object.keys(lbIndex).filter(u => u.toLowerCase().includes(q)).length;
+                          const loaded = displayEntries.filter(Boolean).length;
+                          return totalMatches === 0
+                            ? "No results found"
+                            : loaded < totalMatches
+                            ? `Loading... (${loaded}/${totalMatches} results ready)`
+                            : `${loaded} result${loaded !== 1 ? "s" : ""} found`;
+                        })()}
+                  </div>
+                )}
 
                 {lbLoading&&!displayEntries.length?(
                   <div className="loading"><div className="spinner"/>Loading page {lbPage+1}...</div>
@@ -1911,8 +1925,9 @@ export default function App() {
                       </thead>
                       <tbody>
                         {displayEntries.map((s,i)=>{
-                          // Global rank = page offset + local index (or from sorted position for search)
-                          const globalRank = lbSearch ? (i+1) : (rankOffset+i+1);
+                          const globalRank = lbSearch
+                            ? (lbIndex?.[s.username] ?? (i+1))
+                            : (rankOffset+i+1);
                           return (
                             <tr key={s.username} style={s.username===identity?.username?{background:"rgba(26,86,219,.04)"}:{}}>
                               <td className="rank-c">{globalRank===1?"🥇":globalRank===2?"🥈":globalRank===3?"🥉":globalRank}</td>
@@ -1981,12 +1996,10 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Pagination — hide when searching */}
                 {!lbSearch&&lbMetaInfo&&totalPages>1&&(
                   <div className="pagination">
                     <button className="page-btn" onClick={()=>setLbPage(0)} disabled={lbPage===0}>«</button>
                     <button className="page-btn" onClick={()=>setLbPage(p=>Math.max(0,p-1))} disabled={lbPage===0}>‹ Prev</button>
-                    {/* Show page numbers around current */}
                     {Array.from({length:totalPages},(_, i)=>i).filter(i=>Math.abs(i-lbPage)<=2||i===0||i===totalPages-1).reduce((acc,i,idx,arr)=>{
                       if (idx>0&&arr[idx-1]!==i-1) acc.push("...");
                       acc.push(i); return acc;
@@ -2011,8 +2024,7 @@ export default function App() {
           </div>
         )}
 
-
-        {/* ═══ STATISTICS ═══ */}
+        {/* STATISTICS TAB */}
         {tab==="stats"&&(
           <div className="wrap" style={{paddingTop:18,flex:1}}>
             {(!closed && !meta?.published)?(
@@ -2026,8 +2038,6 @@ export default function App() {
               const total = allLbData.length;
               if (total === 0) return <div className="locked"><div className="locked-icon">📊</div><div className="locked-title">No data yet — bake leaderboard first.</div></div>;
 
-              // ── Compute stats ──
-              // Teams: top5 picks and champion picks
               const teamTop5Count = {}, teamChampCount = {};
               TEAMS.forEach(t => { teamTop5Count[t.name]=0; teamChampCount[t.name]=0; });
               allLbData.forEach(s => {
@@ -2037,7 +2047,6 @@ export default function App() {
               const top5Sorted = [...TEAMS].sort((a,b)=>teamTop5Count[b.name]-teamTop5Count[a.name]);
               const champSorted = [...TEAMS].sort((a,b)=>teamChampCount[b.name]-teamChampCount[a.name]).filter(t=>teamChampCount[t.name]>0);
 
-              // Finals MVP: any pick and 1st pick
               const fmvpAny = {}, fmvp1st = {};
               allLbData.forEach(s => {
                 (s.finalsMvp||[]).forEach((p,i) => { fmvpAny[p]=(fmvpAny[p]||0)+1; if(i===0) fmvp1st[p]=(fmvp1st[p]||0)+1; });
@@ -2045,7 +2054,6 @@ export default function App() {
               const fmvpAnySorted = Object.entries(fmvpAny).sort((a,b)=>b[1]-a[1]).slice(0,10);
               const fmvp1stSorted = Object.entries(fmvp1st).sort((a,b)=>b[1]-a[1]).slice(0,8);
 
-              // Event MVP: any pick and 1st pick
               const emvpAny = {}, emvp1st = {};
               allLbData.forEach(s => {
                 (s.eventMvp||[]).forEach((p,i) => { emvpAny[p]=(emvpAny[p]||0)+1; if(i===0) emvp1st[p]=(emvp1st[p]||0)+1; });
@@ -2053,12 +2061,10 @@ export default function App() {
               const emvpAnySorted = Object.entries(emvpAny).sort((a,b)=>b[1]-a[1]).slice(0,10);
               const emvp1stSorted = Object.entries(emvp1st).sort((a,b)=>b[1]-a[1]).slice(0,8);
 
-              // Best IGL
               const iglCount = {};
               allLbData.forEach(s => { if(s.bestIgl) iglCount[s.bestIgl]=(iglCount[s.bestIgl]||0)+1; });
               const iglSorted = Object.entries(iglCount).sort((a,b)=>b[1]-a[1]);
 
-              // Most Kills
               const killsCount = {};
               allLbData.forEach(s => { if(s.mostFinishes) killsCount[s.mostFinishes]=(killsCount[s.mostFinishes]||0)+1; });
               const killsSorted = Object.entries(killsCount).sort((a,b)=>b[1]-a[1]);
@@ -2085,71 +2091,50 @@ export default function App() {
                 <>
                   <div style={{fontSize:12,color:"#64748b",marginBottom:14}}>Based on <strong style={{color:"#0f172a"}}>{total}</strong> submission{total!==1?"s":""}</div>
 
-                  {/* TEAMS */}
                   <div className="stat-card">
                     <div className="stat-title">🏅 Team Picks</div>
                     <div className="stat-section">
                       <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Top 5 picks (any position)</div>
-                      {top5Sorted.map(t=>(
-                        <StatRow key={t.id+"t5"} label={t.name} count={teamTop5Count[t.name]} maxCount={teamTop5Count[top5Sorted[0].name]} color="#1a56db"/>
-                      ))}
+                      {top5Sorted.map(t=>(<StatRow key={t.id+"t5"} label={t.name} count={teamTop5Count[t.name]} maxCount={teamTop5Count[top5Sorted[0].name]} color="#1a56db"/>))}
                     </div>
                     <div className="stat-section" style={{marginTop:16}}>
                       <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>Champion picks</div>
-                      {champSorted.map(t=>(
-                        <StatRow key={t.id+"ch"} label={t.name} count={teamChampCount[t.name]} maxCount={teamChampCount[champSorted[0].name]} color="#f59e0b"/>
-                      ))}
+                      {champSorted.map(t=>(<StatRow key={t.id+"ch"} label={t.name} count={teamChampCount[t.name]} maxCount={teamChampCount[champSorted[0].name]} color="#f59e0b"/>))}
                     </div>
                   </div>
 
-                  {/* FINALS MVP */}
                   <div className="stat-card">
                     <div className="stat-title">🎯 Finals MVP Picks</div>
                     <div className="stat-section">
                       <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Any pick (1st, 2nd or 3rd)</div>
-                      {fmvpAnySorted.map(([p,c])=>(
-                        <StatRow key={"fa"+p} label={p} count={c} maxCount={fmvpAnySorted[0][1]} color="#1a56db"/>
-                      ))}
+                      {fmvpAnySorted.map(([p,c])=>(<StatRow key={"fa"+p} label={p} count={c} maxCount={fmvpAnySorted[0][1]} color="#1a56db"/>))}
                     </div>
                     <div className="stat-section" style={{marginTop:16}}>
                       <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>1st choice (confident pick)</div>
-                      {fmvp1stSorted.map(([p,c])=>(
-                        <StatRow key={"f1"+p} label={p} count={c} maxCount={fmvp1stSorted[0][1]} color="#f59e0b"/>
-                      ))}
+                      {fmvp1stSorted.map(([p,c])=>(<StatRow key={"f1"+p} label={p} count={c} maxCount={fmvp1stSorted[0][1]} color="#f59e0b"/>))}
                     </div>
                   </div>
 
-                  {/* EVENT MVP */}
                   <div className="stat-card">
                     <div className="stat-title">🌟 Event MVP Picks</div>
                     <div className="stat-section">
                       <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#1a56db"}}/>Any pick (1st, 2nd or 3rd)</div>
-                      {emvpAnySorted.map(([p,c])=>(
-                        <StatRow key={"ea"+p} label={p} count={c} maxCount={emvpAnySorted[0][1]} color="#1a56db"/>
-                      ))}
+                      {emvpAnySorted.map(([p,c])=>(<StatRow key={"ea"+p} label={p} count={c} maxCount={emvpAnySorted[0][1]} color="#1a56db"/>))}
                     </div>
                     <div className="stat-section" style={{marginTop:16}}>
                       <div className="stat-sub"><span className="stat-sub-dot" style={{background:"#f59e0b"}}/>1st choice (confident pick)</div>
-                      {emvp1stSorted.map(([p,c])=>(
-                        <StatRow key={"e1"+p} label={p} count={c} maxCount={emvp1stSorted[0][1]} color="#f59e0b"/>
-                      ))}
+                      {emvp1stSorted.map(([p,c])=>(<StatRow key={"e1"+p} label={p} count={c} maxCount={emvp1stSorted[0][1]} color="#f59e0b"/>))}
                     </div>
                   </div>
 
-                  {/* BEST IGL */}
                   <div className="stat-card">
                     <div className="stat-title">🎖️ Best IGL Picks</div>
-                    {iglSorted.map(([p,c])=>(
-                      <StatRow key={"igl"+p} label={p} count={c} maxCount={iglSorted[0][1]} color="#7c3aed"/>
-                    ))}
+                    {iglSorted.map(([p,c])=>(<StatRow key={"igl"+p} label={p} count={c} maxCount={iglSorted[0][1]} color="#7c3aed"/>))}
                   </div>
 
-                  {/* MOST KILLS */}
                   <div className="stat-card">
                     <div className="stat-title">💀 Most Kills Team Picks</div>
-                    {killsSorted.map(([t,c])=>(
-                      <StatRow key={"k"+t} label={t} count={c} maxCount={killsSorted[0][1]} color="#ef4444"/>
-                    ))}
+                    {killsSorted.map(([t,c])=>(<StatRow key={"k"+t} label={t} count={c} maxCount={killsSorted[0][1]} color="#ef4444"/>))}
                   </div>
                 </>
               );
@@ -2159,12 +2144,10 @@ export default function App() {
 
         {toast&&<div className={`toast${toast.type==="error"?" err":""}`}>{toast.msg}</div>}
 
-        {/* Footer */}
         <div className="footer">
           <a href="https://esportsamaze.in" target="_blank" rel="noopener noreferrer">
             <img src="/logos/esportsamaze_singleline.png" className="footer-logo" alt="EsportsAmaze"/>
           </a>
-
           <div className="footer-links">
             <a href="https://esportsamaze.in" target="_blank" rel="noopener noreferrer" className="footer-link">📖 Wiki (Beta)</a>
             <a href="https://esportsamaze.com" target="_blank" rel="noopener noreferrer" className="footer-link">📰 News & Media</a>
